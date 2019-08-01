@@ -12,47 +12,54 @@ The Example proto contains the following fields:
   image/width: image width.
   image/text/boxes/encoded: encoded bounding boxes.
 """
-import collections
+from collections.abc import Iterable
 import six
 import tensorflow as tf
+from absl import flags
 
-FLAGS = tf.app.flags.FLAGS
+FLAGS = flags.FLAGS
 
-tf.app.flags.DEFINE_enum(
+flags.DEFINE_enum(
     "image_format", "jpg", ["jpg", "jpeg", "JPG"], "Image format."
 )
 
 # A map from image format to expected data format.
-_IMAGE_FORMAT_MAP = {"jpg": "jpeg", "jpeg": "jpeg", "JPG": "jpeg"}
+_IMAGE_FORMAT_MAP = {
+    "jpg": "jpeg",
+    "jpeg": "jpeg",
+    "JPG": "jpeg",
+    "png": "png",
+    "PNG": "png",
+}
 
 
-class ImageReader(object):
+class ImageReader:
     """Helper class that provides TensorFlow image coding utilities."""
 
-    def __init__(self, image_format="jpeg", channels=3):
-        """Class constructor.
-
-            Args:
-              `image_format`: Image format.
-
-                  Only 'jpeg', 'jpg', or 'JPG' are supported.
-
-              `channels`: Image channels.
-        """
+    def __init__(self, channels=3):
         with tf.Graph().as_default():
-            self._decoded_data = tf.placeholder(dtype=tf.string)
-            self._image_format = image_format
-            self._session = tf.Session()
-            if _IMAGE_FORMAT_MAP[self._image_format] == "jpeg":
-                self._decode = tf.image.decode_jpeg(
-                    self._decoded_data, channels=channels
-                )
-            else:
-                raise ValueError(
-                    f"The input format {self._image_format} is not supported"
-                )
+            self._decode_data = tf.compat.v1.placeholder(dtype=tf.string)
+            self._session = tf.compat.v1.Session()
+            self.channels = 3
 
-    def read_image_dims(self, image_data):
+    def _decode_image_data(self, image_data, image_format):
+        if _IMAGE_FORMAT_MAP[image_format] == "jpeg":
+            decoder = tf.image.decode_jpeg(
+                self._decode_data, channels=self.channels
+            )
+        elif _IMAGE_FORMAT_MAP[image_format] == "png":
+            decoder = tf.image.decode_png(
+                self._decode_data, channels=self.channels
+            )
+        else:
+            raise ValueError(
+                f"The input format {self._image_format} is not supported"
+            )
+        return self._session.run(
+            decoder, feed_dict={self._decode_data: image_data}
+        )
+
+    def read_image_dims(self, image_data, image_format):
         """Reads the image dimensions.
 
         Args:
@@ -61,10 +68,10 @@ class ImageReader(object):
         Returns:
           image_height and image_width.
         """
-        image = self.decode_image(image_data)
+        image = self.decode_image(image_data, image_format)
         return image.shape[:2]
 
-    def decode_image(self, image_data):
+    def decode_image(self, image_data, image_format):
         """Decodes the image data string.
 
         Args:
@@ -76,12 +83,10 @@ class ImageReader(object):
         Raises:
           ValueError: The input image has incorrect number of channels.
         """
-        image = self._session.run(
-            self._decode, feed_dict={self._decoded_data: image_data}
-        )
-        if len(image.shape) != 3 or image.shape[2] == 3:
+        image = self._decode_image_data(image_data, image_format)
+        if len(image.shape) != 3 or image.shape[2] != 3:
             raise ValueError(
-                "The input image has incorrect number of channels."
+                "The input image has the incorrect shape or number of channels"
             )
 
         return image
@@ -96,7 +101,7 @@ def _int64_list_feature(values):
       Returns:
         A TF-Feature.
       """
-    if not isinstance(values, collections.Iterable):
+    if not isinstance(values, Iterable):
         values = [values]
 
     return tf.train.Feature(int64_list=tf.train.Int64List(value=values))
@@ -111,7 +116,7 @@ def _float_list_feature(values):
       Returns:
         A TF-Feature.
       """
-    if not isinstance(values, collections.Iterable):
+    if not isinstance(values, Iterable):
         values = [values]
 
     return tf.train.Feature(float_list=tf.train.FloatList(value=values))
@@ -158,6 +163,7 @@ def labelled_image_to_tfexample(image_data, filename, height, width, bboxes):
                 ),
                 "image/height": _int64_list_feature(height),
                 "image/width": _int64_list_feature(width),
+                "image/text/boxes/count": _int64_list_feature(len(bboxes)),
                 "image/text/boxes/encoded": _float_list_feature(bboxes),
             }
         )

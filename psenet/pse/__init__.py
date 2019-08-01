@@ -17,4 +17,3 @@ def pse(polys, min_area):
     # end = time.time()
     # print (end - start), 's'
     return ret
-

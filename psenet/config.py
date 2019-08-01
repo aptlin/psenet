@@ -1,0 +1,9 @@
+NUMBER_OF_BBOXES = "number_of_bboxes"
+BBOX_SIZE = 8
+BBOXES = "bboxes"
+HEIGHT = "height"
+IMAGE = "image"
+IMAGE_NAME = "image_name"
+LABEL = "label"
+RESIZE_LENGTH = 1280
+WIDTH = "width"
