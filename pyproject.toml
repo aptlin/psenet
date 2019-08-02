@@ -11,6 +11,8 @@ segmentation-models = "^0.2.1"
 opencv-python = "^4.1"
 tqdm = "^4.32"
 absl-py = "^0.7.1"
+Polygon3 = "^3.0"
+pyclipper = "^1.1"
 
 [tool.poetry.dev-dependencies]
 pytest = "^3.0"

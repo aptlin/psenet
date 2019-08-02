@@ -52,6 +52,7 @@ def _convert_shard(shard_id, jpeg_images_filenames, labels_filenames):
                 tf.io.gfile.GFile(labels_filename, "r").read().split("\n")
             )
             bboxes = []
+            text_data = []
             for line in labels_data:
                 line = line.strip("\ufeff").strip("\xef\xbb\xbf").split(",")
                 if len(line) > 8:
@@ -59,9 +60,16 @@ def _convert_shard(shard_id, jpeg_images_filenames, labels_filenames):
                         [width * 1.0, height * 1.0] * 4
                     )
                     bboxes.extend(bbox)
+                    text_datum = line[9]
+                    text_data.append(text_datum)
 
             example = build_example.labelled_image_to_tfexample(
-                image_data, jpeg_images_filenames[i], height, width, bboxes
+                image_data,
+                text_data,
+                jpeg_images_filenames[i],
+                height,
+                width,
+                bboxes,
             )
             tfrecord_writer.write(example.SerializeToString())
 

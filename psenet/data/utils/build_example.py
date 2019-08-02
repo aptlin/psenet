@@ -16,6 +16,7 @@ from collections.abc import Iterable
 import six
 import tensorflow as tf
 from absl import flags
+from psenet import config
 
 FLAGS = flags.FLAGS
 
@@ -140,19 +141,10 @@ def _bytes_list_feature(values):
     )
 
 
-def labelled_image_to_tfexample(image_data, filename, height, width, bboxes):
-    """Converts one image/segmentation pair to tf example.
-
-  Args:
-    image_data: string of image data.
-    filename: image filename.
-    height: image height.
-    width: image width.
-    seg_data: string of semantic segmentation data.
-
-  Returns:
-    tf example of one image/segmentation pair.
-  """
+def labelled_image_to_tfexample(
+    image_data, text_data, filename, height, width, bboxes
+):
+    tags = "".join(map(lambda text: str(int(text == "###")), text_data))
     return tf.train.Example(
         features=tf.train.Features(
             feature={
@@ -163,7 +155,10 @@ def labelled_image_to_tfexample(image_data, filename, height, width, bboxes):
                 ),
                 "image/height": _int64_list_feature(height),
                 "image/width": _int64_list_feature(width),
-                "image/text/boxes/count": _int64_list_feature(len(bboxes)),
+                "image/text/tags/encoded": _bytes_list_feature(tags),
+                "image/text/boxes/count": _int64_list_feature(
+                    len(bboxes) // config.BBOX_SIZE
+                ),
                 "image/text/boxes/encoded": _float_list_feature(bboxes),
             }
         )
