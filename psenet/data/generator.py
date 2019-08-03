@@ -5,8 +5,6 @@ import tensorflow as tf
 from psenet import config
 from psenet.data.utils import preprocess
 
-tf.compat.v1.enable_eager_execution()
-
 
 class Dataset:
     def __init__(
@@ -83,18 +81,19 @@ class Dataset:
         }
         return sample
 
-    def _process_tagged_bboxes(self, image, bboxes, tags):
-        image = preprocess.random_scale(image)
-        image = preprocess.scale(image)
-        height, width = np.asarray(image.shape).astype("int64")[:2]
+    def _process_tagged_bboxes(self, bboxes, tags, height, width):
+        tags = str(tags)
         gt_text = np.zeros([height, width], dtype="uint8")
         training_mask = np.ones([height, width], dtype="uint8")
-        if bboxes.shape[0] > 0:
+        bboxes_count, bboxes_width = np.asarray(bboxes.shape).astype("int64")[
+            :2
+        ]
+        if bboxes_count > 0:
             bboxes = np.reshape(
                 bboxes * ([width, height] * 4),
-                (bboxes.shape[0], int(bboxes.shape[1] / 2), 2),
+                (bboxes_count, int(bboxes_width / 2), 2),
             ).astype("int32")
-            for i in range(bboxes.shape[0]):
+            for i in range(bboxes_count):
                 cv2.drawContours(gt_text, [bboxes[i]], -1, i + 1, -1)
                 if tags[i] != "1":
                     cv2.drawContours(training_mask, [bboxes[i]], -1, 0, -1)
@@ -104,11 +103,32 @@ class Dataset:
             rate = 1.0 - (1.0 - self.min_scale) / (self.kernel_num - 1) * i
             gt_kernel = np.zeros([height, width], dtype="uint8")
             kernel_bboxes = preprocess.shrink(bboxes, rate)
-            for i in range(bboxes.shape[0]):
+            for i in range(bboxes_count):
                 cv2.drawContours(gt_kernel, [kernel_bboxes[i]], -1, 1, -1)
             gt_kernels.append(gt_kernel)
+        return gt_kernels, gt_text, training_mask
+
+    def _preprocess_example(self, sample):
+        image = sample[config.IMAGE]
+        tags = sample[config.TAGS]
+        bboxes = sample[config.BBOXES]
+
+        image = preprocess.random_scale(image)
+        image_shape = tf.shape(image)
+        height = image_shape[0]
+        width = image_shape[1]
+        processed = tf.py_function(
+            func=self._process_tagged_bboxes,
+            inp=[bboxes, tags, height, width],
+            Tout=[tf.uint8, tf.uint8, tf.uint8],
+        )
+        gt_kernels = processed[0]
+        gt_text = processed[1]
+        training_mask = processed[2]
+
         tensors = [image, gt_text, training_mask]
-        tensors.extend(gt_kernels)
+        for idx in range(1, self.kernel_num):
+            tensors.append(gt_kernels[idx - 1])
         tensors = preprocess.random_flip(tensors)
         tensors = preprocess.random_rotate(tensors)
         tensors = preprocess.background_random_crop(tensors, gt_text)
@@ -118,44 +138,26 @@ class Dataset:
             tensors[2],
             tensors[3:],
         )
-        gt_text = np.asarray(gt_text)
-        gt_text[gt_text > 0] = 1
+        gt_text = tf.cast(gt_text, tf.int32)
+        gt_text = tf.sign(gt_text)
+        gt_text = tf.cast(gt_text, tf.uint8)
         image = tf.image.random_brightness(image, 32 / 255)
         image = tf.image.random_saturation(image, 0.5, 1.5)
         image = preprocess.normalize(image)
-
-        return image, gt_kernels, gt_text, training_mask
-
-    def _preprocess_example(self, sample):
-        image = sample[config.IMAGE]
-        tags = sample[config.TAGS]
-        bboxes = sample[config.BBOXES]
-        processed = tf.numpy_function(
-            func=self._process_tagged_bboxes,
-            inp=[image, bboxes, tags],
-            Tout=[tf.float32, tf.uint8, tf.uint8, tf.uint8],
-        )
-        image = processed[0]
-        gt_kernels = processed[1]
-        gt_text = processed[2]
-        training_mask = processed[3]
-        sample.pop(config.TAGS, None)
-        sample.pop(config.BBOXES, None)
-        image_shape = tf.shape(image)
-        height = image_shape[0]
-        width = image_shape[1]
-        sample[config.HEIGHT] = height
-        sample[config.WIDTH] = width
-        sample[config.IMAGE] = image
-        sample[config.KERNELS] = gt_kernels
-        sample[config.TEXT] = gt_text
-        sample[config.TRAINING_MASK] = training_mask
-        return sample
+        return {
+            config.HEIGHT: height,
+            config.WIDTH: width,
+            config.IMAGE_NAME: sample[config.IMAGE_NAME],
+            config.IMAGE: image,
+            config.TRAINING_MASK: training_mask,
+            config.TEXT: gt_text,
+            config.KERNELS: gt_kernels,
+        }
 
     def _get_all_tfrecords(self):
         return tf.io.gfile.glob(os.path.join(self.dataset_dir, "*.tfrecord"))
 
-    def get_one_shot_iterator(self):
+    def build(self):
         tfrecords = self._get_all_tfrecords()
         dataset = (
             tf.data.TFRecordDataset(
@@ -173,16 +175,16 @@ class Dataset:
         else:
             dataset = dataset.repeat(1)
 
-        # dataset = dataset.padded_batch(
-        #     self.batch_size,
-        #     padded_shapes={
-        #         config.HEIGHT: [],
-        #         config.IMAGE_NAME: [],
-        #         config.IMAGE: [None, None, 3],
-        #         config.TRAINING_MASK: [None, None],
-        #         config.TEXT: [None, None],
-        #         config.KERNELS: [None, None, config.KERNEL_NUM - 1],
-        #         config.WIDTH: [],
-        #     },
-        # ).prefetch(self.batch_size)
-        return dataset.make_one_shot_iterator()
+        dataset = dataset.padded_batch(
+            self.batch_size,
+            padded_shapes={
+                config.IMAGE_NAME: [],
+                config.IMAGE: [None, None, 3],
+                config.HEIGHT: [],
+                config.WIDTH: [],
+                config.TRAINING_MASK: [None, None],
+                config.TEXT: [None, None],
+                config.KERNELS: [config.KERNEL_NUM - 1, None, None],
+            },
+        ).prefetch(self.batch_size)
+        return dataset

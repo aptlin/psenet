@@ -17,84 +17,109 @@ def random_flip(images, prob=0.5, dim=1):
 
     is_flipped = tf.less_equal(random_value, prob)
     outputs = tf.cond(is_flipped, flip, lambda: images)
-    if not isinstance(outputs, (list, tuple)):
-        outputs = [outputs]
     return outputs
 
 
-def random_rotate(images, prob=0.5, max_angle=10):
+def rotate(image):
+    max_angle = config.MAX_ROTATION_ANGLE
+    angle = tf.random.uniform([]) * 2 * max_angle - max_angle
+    image = np.asarray(image, dtype="uint8")
+    height, width = np.asarray(image.shape).astype("uint64")[:2]
+    rotation_matrix = cv2.getRotationMatrix2D(
+        (height / 2, width / 2), angle, 1
+    )
+    image = cv2.warpAffine(image, rotation_matrix, (height, width))
+    return image
+
+
+def random_rotate(images, prob=0.5):
     random_value = tf.random.uniform([])
     is_rotated = tf.less_equal(random_value, prob)
-    angle = tf.random.uniform([]) * 2 * max_angle - max_angle
-
-    def rotate():
-        rotated = []
-        for image in images:
-            image = np.asarray(image, dtype="uint8")
-            height, width = np.asarray(image.shape).astype("uint64")[:2]
-            rotation_matrix = cv2.getRotationMatrix2D(
-                (height / 2, width / 2), angle, 1
-            )
-            rotated.append(
-                cv2.warpAffine(image, rotation_matrix, (height, width))
-            )
-        return rotated
-
-    output = tf.cond(is_rotated, rotate, lambda: images)
-    return output
+    rotated_images = []
+    for image in images:
+        image = tf.cond(
+            is_rotated,
+            lambda: tf.py_function(func=rotate, inp=[image], Tout=tf.uint8),
+            lambda: image,
+        )
+        rotated_images.append(image)
+    return rotated_images
 
 
 def background_random_crop(
     images, text, crop_size=config.CROP_SIZE, prob=3 / 8
 ):
     random_value = tf.random.uniform([])
-    height, width = np.asarray(text.shape).astype("uint64")[:2]
-    if width == crop_size and height == crop_size:
-        return images
+    text_shape = tf.shape(text)
+    height = text_shape[0]
+    height = tf.cast(height, tf.int64)
+    width = text_shape[1]
+    width = tf.cast(width, tf.int64)
+    should_not_crop = tf.logical_and(
+        tf.equal(width, crop_size), tf.equal(height, crop_size)
+    )
+    should_search = tf.logical_and(
+        tf.greater(random_value, prob), tf.greater(tf.count_nonzero(text), 0)
+    )
 
-    if random_value > prob and np.max(text) > 0:
-        tl = np.min(np.where(text > 0), axis=1) - crop_size
-        tl[tl < 0] = 0
-        br = np.max(np.where(text > 0), axis=1) - crop_size
-        br[br < 0] = 0
-        br[0] = min(br[0], abs(height - crop_size))
-        br[1] = min(br[1], abs(width - crop_size))
+    non_zero_text_locs = tf.where(tf.math.greater(text, 0))
+    left_texts = tf.math.reduce_min(non_zero_text_locs, axis=1) - crop_size
 
-        if tl[0] != br[0]:
-            start_y = tf.random.uniform(
-                [], minval=tl[0], maxval=br[0], dtype=tf.int64
-            )
-        else:
-            start_y = tl[0]
-        if tl[1] != br[1]:
-            start_x = tf.random.uniform(
-                [], minval=tl[1], maxval=br[1], dtype=tf.int64
-            )
-        else:
-            start_x = tl[1]
-    else:
-        if height > crop_size:
-            start_y = tf.random.uniform(
-                [], minval=0, maxval=height - crop_size, dtype=tf.int64
-            )
-        else:
-            start_y = 0
-        if width > crop_size:
-            start_x = tf.random.uniform(
-                [], minval=0, maxval=width - crop_size, dtype=tf.int64
-            )
-        else:
-            start_x = 0
+    left_texts = tf.where(
+        tf.math.less(left_texts, 0), tf.zeros_like(left_texts), left_texts
+    )
+    right_background = tf.math.reduce_max(non_zero_text_locs, axis=1)
+    right_background = tf.where(
+        tf.math.less(right_background, 0),
+        tf.zeros_like(right_background),
+        right_background,
+    )
+    right_background_y = tf.math.minimum(
+        right_background[0], tf.math.abs(height - crop_size)
+    )
+    right_background_x = tf.math.minimum(
+        right_background[1], tf.math.abs(width - crop_size)
+    )
+    start_y = tf.cond(
+        tf.not_equal(left_texts[0], right_background_y),
+        lambda: tf.random.uniform(
+            [], minval=left_texts[0], maxval=right_background_y, dtype=tf.int64
+        ),
+        lambda: left_texts[0],
+    )
+    start_x = tf.cond(
+        tf.not_equal(left_texts[1], right_background_x),
+        lambda: tf.random.uniform(
+            [], minval=left_texts[1], maxval=right_background_x, dtype=tf.int64
+        ),
+        lambda: left_texts[1],
+    )
+    default_start_y = tf.cond(
+        tf.greater(height, crop_size),
+        lambda: tf.random.uniform(
+            [], minval=0, maxval=height - crop_size, dtype=tf.int64
+        ),
+        lambda: tf.cast(0, tf.int64),
+    )
+    default_start_x = tf.cond(
+        tf.greater(width, crop_size),
+        lambda: tf.random.uniform(
+            [], minval=0, maxval=width - crop_size, dtype=tf.int64
+        ),
+        lambda: tf.cast(0, tf.int64),
+    )
+    start_y = tf.cond(should_search, lambda: start_y, lambda: default_start_y)
+    start_x = tf.cond(should_search, lambda: start_x, lambda: default_start_x)
+
+    end_y = start_y + crop_size
+    end_x = start_x + crop_size
+    new_images = []
     for idx in range(len(images)):
-        if len(images[idx].shape) == 3:
-            images[idx] = images[idx][
-                start_y : start_y + crop_size, start_x : start_x + crop_size, :
-            ]
-        else:
-            images[idx] = images[idx][
-                start_y : start_y + crop_size, start_x : start_x + crop_size
-            ]
-    return images
+        image = images[idx][start_y:end_y, start_x:end_x]
+        new_images.append(image)
+
+    output = tf.cond(should_not_crop, lambda: images, lambda: new_images)
+    return output
 
 
 def scale(image, resize_length=config.RESIZE_LENGTH):
@@ -166,6 +191,7 @@ def random_scale(image, prob=0.5):
         ),
         lambda: image,
     )
+    output = scale(output)
     return output
 
 
@@ -208,6 +234,7 @@ def shrink(bboxes, rate, max_shr=20):
 
 def normalize(image):
     image = tf.cast(image, tf.float32)
+    image /= 255
     offset = tf.constant(config.MEAN_RGB, shape=[1, 1, 3])
     image -= offset
 
