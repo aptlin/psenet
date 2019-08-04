@@ -132,8 +132,8 @@ def scale(image, resize_length=config.RESIZE_LENGTH):
     is_greater = tf.greater(max_side, resize_length)
     ratio = tf.cond(
         is_greater,
-        lambda: 1.0,
         lambda: tf.math.divide(resize_length, max_side),
+        lambda: 1.0,
     )
 
     def get_scaling_factor(side):
@@ -163,6 +163,7 @@ def scale(image, resize_length=config.RESIZE_LENGTH):
 
 
 def random_scale(image, prob=0.5):
+    image = scale(image)
     random_value = tf.random.uniform([])
     random_scale_factor = tf.random.uniform([], minval=0.5, maxval=3)
     image_shape = tf.shape(image)
@@ -191,7 +192,6 @@ def random_scale(image, prob=0.5):
         ),
         lambda: image,
     )
-    output = scale(output)
     return output
 
 

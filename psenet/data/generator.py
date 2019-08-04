@@ -14,7 +14,7 @@ class Dataset:
         max_side_length=config.RESIZE_LENGTH,
         min_scale=config.MIN_SCALE,
         kernel_num=config.KERNEL_NUM,
-        num_readers=1,
+        num_readers=config.NUM_READERS,
         should_shuffle=False,
         should_repeat=False,
     ):
@@ -138,53 +138,56 @@ class Dataset:
             tensors[2],
             tensors[3:],
         )
-        gt_text = tf.cast(gt_text, tf.int32)
+        training_mask = tf.cast(training_mask, tf.float32)
+        gt_text = tf.cast(gt_text, tf.float32)
         gt_text = tf.sign(gt_text)
-        gt_text = tf.cast(gt_text, tf.uint8)
         image = tf.image.random_brightness(image, 32 / 255)
         image = tf.image.random_saturation(image, 0.5, 1.5)
         image = preprocess.normalize(image)
-        return {
-            config.HEIGHT: height,
-            config.WIDTH: width,
-            config.IMAGE_NAME: sample[config.IMAGE_NAME],
-            config.IMAGE: image,
-            config.TRAINING_MASK: training_mask,
-            config.TEXT: gt_text,
-            config.KERNELS: gt_kernels,
-        }
+        label = tf.stack(gt_text + gt_kernels)
+        label = tf.cast(label, tf.float32)
+        return (
+            {
+                config.IMAGE_NAME: sample[config.IMAGE_NAME],
+                config.IMAGE: image,
+                config.TRAINING_MASK: training_mask,
+            },
+            label,
+        )
 
     def _get_all_tfrecords(self):
-        return tf.io.gfile.glob(os.path.join(self.dataset_dir, "*.tfrecord"))
+        return tf.data.Dataset.list_files(
+            os.path.join(self.dataset_dir, "*.tfrecord")
+        )
 
     def build(self):
-        tfrecords = self._get_all_tfrecords()
-        dataset = (
-            tf.data.TFRecordDataset(
-                tfrecords, num_parallel_reads=self.num_readers
-            )
-            .map(self._parse_example, num_parallel_calls=self.num_readers)
-            .map(self._preprocess_example, num_parallel_calls=self.num_readers)
+        files = self._get_all_tfrecords()
+
+        dataset = files.interleave(
+            lambda file: tf.data.TFRecordDataset(file)
+            .map(self._parse_example, num_parallel_calls=1)
+            .map(self._preprocess_example, num_parallel_calls=1),
+            cycle_length=self.num_readers,
+            num_parallel_calls=self.num_readers,
         )
 
         if self.should_shuffle:
-            dataset = dataset.shuffle(buffer_size=100)
+            dataset = dataset.shuffle(buffer_size=config.SHUFFLE_BUFFER_SIZE)
 
         if self.should_repeat:
             dataset = dataset.repeat()  # Repeat forever for training.
         else:
             dataset = dataset.repeat(1)
-
+        dataset = dataset
         dataset = dataset.padded_batch(
             self.batch_size,
-            padded_shapes={
-                config.IMAGE_NAME: [],
-                config.IMAGE: [None, None, 3],
-                config.HEIGHT: [],
-                config.WIDTH: [],
-                config.TRAINING_MASK: [None, None],
-                config.TEXT: [None, None],
-                config.KERNELS: [config.KERNEL_NUM - 1, None, None],
-            },
+            padded_shapes=(
+                {
+                    config.IMAGE_NAME: [],
+                    config.IMAGE: [None, None, 3],
+                    config.TRAINING_MASK: [None, None],
+                },
+                [config.KERNEL_NUM, None, None],
+            ),
         ).prefetch(self.batch_size)
         return dataset
