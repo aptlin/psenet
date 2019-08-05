@@ -1,23 +1,29 @@
 """Converts the ICDAR MLT 2019 data to TFRecords."""
 
-from absl import app
-from absl import flags
-import threading
-from tqdm import tqdm
 import math
 import os
 import random
-import build_example
+import threading
+
 import numpy as np
 import tensorflow as tf
+from absl import app, flags
+from tqdm import tqdm
+
+import build_example
+from psenet import config
 
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string(
-    "images_dir", "./dist/mlt/images", "The directory with images"
+    "training_data_dir",
+    config.RAW_TRAINING_DATA_DIR,
+    "The directory with images and labels for training",
 )
 flags.DEFINE_string(
-    "labels_dir", "./dist/mlt/labels", "The directory with labels"
+    "eval_data_dir",
+    config.RAW_EVAL_DATA_DIR,
+    "The directory with images and labels for evaluation",
 )
 
 flags.DEFINE_string(
@@ -27,13 +33,14 @@ flags.DEFINE_string(
 _NUM_SHARDS = 4
 
 
-def _convert_shard(shard_id, jpeg_images_filenames, labels_filenames):
+def _convert_shard(stage, shard_id, jpeg_images_filenames, labels_filenames):
     num_images = len(jpeg_images_filenames)
     num_per_shard = int(math.ceil(num_images / float(_NUM_SHARDS)))
 
     image_reader = build_example.ImageReader()
     output_filename = os.path.join(
         FLAGS.output_dir,
+        stage,
         f"shard-{(shard_id + 1):05}-of-{_NUM_SHARDS:05}.tfrecord",
     )
     with tf.io.TFRecordWriter(output_filename) as tfrecord_writer:
@@ -74,7 +81,7 @@ def _convert_shard(shard_id, jpeg_images_filenames, labels_filenames):
             tfrecord_writer.write(example.SerializeToString())
 
 
-def _convert_images(images_dir, labels_dir):
+def _convert_images(data_dir, stage):
     """Converts the ADE20k dataset into into tfrecord format.
     Args:
       images_dir: The directory with images.
@@ -82,30 +89,34 @@ def _convert_images(images_dir, labels_dir):
     """
 
     jpeg_images_filenames = tf.io.gfile.glob(
-        os.path.join(images_dir, "*.jpg")
-    ) + tf.io.gfile.glob(os.path.join(images_dir, "*.png"))
+        os.path.join(data_dir, config.IMAGES_DIR, "*.jpg")
+    ) + tf.io.gfile.glob(os.path.join(data_dir, config.IMAGES_DIR, "*.png"))
     random.shuffle(jpeg_images_filenames)
     labels_filenames = []
     for f in jpeg_images_filenames:
-        # get the filename without the extension
         basename = os.path.basename(f).split(".")[0]
-        labels_filename = os.path.join(labels_dir, basename + ".txt")
+        labels_filename = os.path.join(
+            data_dir, config.LABELS_DIR, basename + ".txt"
+        )
         labels_filenames.append(labels_filename)
     coord = tf.train.Coordinator()
     threads = []
     for shard_id in range(_NUM_SHARDS):
         thread = threading.Thread(
             target=_convert_shard,
-            args=(shard_id, jpeg_images_filenames, labels_filenames),
+            args=(stage, shard_id, jpeg_images_filenames, labels_filenames),
         )
         thread.start()
         threads.append(thread)
     coord.join(threads)
+    print("Done!")
 
 
 def main(unused_argv):
-    tf.io.gfile.makedirs(FLAGS.output_dir)
-    _convert_images(FLAGS.images_dir, FLAGS.labels_dir)
+    tf.io.gfile.makedirs(os.path.join(FLAGS.output_dir, "train"))
+    tf.io.gfile.makedirs(os.path.join(FLAGS.output_dir, "eval"))
+    _convert_images(FLAGS.training_data_dir, "train")
+    _convert_images(FLAGS.eval_data_dir, "eval")
 
 
 if __name__ == "__main__":

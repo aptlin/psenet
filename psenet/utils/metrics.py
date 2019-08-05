@@ -1,12 +1,15 @@
-from psenet import config
 import tensorflow as tf
+
+from psenet import config
 
 
 class RunningScore:
     def __init__(self, n_classes, name=""):
         self.name = name
         self.n_classes = n_classes
-        self.confusion_matrix = tf.zeros([n_classes, n_classes])
+        self.confusion_matrix = tf.zeros(
+            [n_classes, n_classes], dtype=tf.float32
+        )
 
     def _compute_confusion(self, ground_truth, prediction):
         mask = tf.logical_and(
@@ -29,7 +32,7 @@ class RunningScore:
 
     def update(self, ground_truth, prediction):
         n_labels = tf.shape(ground_truth)[0]
-        n_labels = tf.cast(n_labels, tf.uint64)
+        n_labels = tf.cast(n_labels, tf.int64)
         indices = tf.range(n_labels)
 
         def get_increment(index):
@@ -41,7 +44,9 @@ class RunningScore:
                 ground_truth_increment, prediction_increment
             )
 
-        increment = tf.math.reduce_sum(tf.map_fn(get_increment, indices))
+        increment = tf.math.reduce_sum(
+            tf.map_fn(get_increment, indices, dtype=tf.float32)
+        )
         self.confusion_matrix += increment
 
     def compute_scores(self):

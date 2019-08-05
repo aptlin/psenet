@@ -2,13 +2,17 @@ import tensorflow as tf
 
 # tf.enable_eager_execution()
 from psenet.data.generator import Dataset
+from psenet import config
 
-dataset = Dataset("./dist/mlt/tfrecords", 100, num_readers=4)
+dataset = Dataset(
+    config.TRAINING_DATA_DIR, 1, num_readers=4, should_augment=True
+)
 it = dataset.build().make_one_shot_iterator()
 s = it.get_next()
 with tf.Session() as sess:
-    for i in range(100):
-        print(sess.run(s))
+    d = sess.run(s)
+    # for i in range(100):
+    #     print(sess.run(s))
 
 # import tensorflow as tf
 # from segmentation_models import FPN

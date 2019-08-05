@@ -1,6 +1,6 @@
 import tensorflow as tf
-from segmentation_models.losses import dice_loss
 from segmentation_models import FPN
+from segmentation_models.losses import dice_loss
 
 from psenet import config
 
@@ -11,7 +11,9 @@ def build_fpn(backbone_name: str, n_kernels=config.KERNEL_NUM):
         input_shape=(None, None, 3),
         classes=n_kernels,
         encoder_weights="imagenet",
+        encoder_freeze=False,
         activation="sigmoid",
+        final_interpolation="nearest",
         pyramid_block_filters=256,
     )
 
@@ -69,8 +71,8 @@ def ohem_single(texts, gt_texts, training_masks):
     selected_mask = tf.expand_dims(selected_mask, axis=0)
     output = tf.cond(
         tf.logical_or(has_net_positive_texts, has_net_negative_texts),
-        training_masks,
-        selected_mask,
+        lambda: training_masks,
+        lambda: selected_mask,
     )
 
     return output
@@ -78,9 +80,9 @@ def ohem_single(texts, gt_texts, training_masks):
 
 def ohem_batch(texts, gt_texts, training_masks):
     texts_count = tf.shape(texts)[0]
-    texts_count = tf.cast(texts_count, tf.uint64)
+    texts_count = tf.cast(texts_count, tf.int64)
 
-    indices = tf.range(texts_count, dtype=tf.uint64)
+    indices = tf.range(texts_count, dtype=tf.int64)
     selected_masks = tf.map_fn(
         lambda idx: ohem_single(
             texts[idx, :, :], gt_texts[idx, :, :], training_masks[idx, :, :]
@@ -105,12 +107,12 @@ def compute_text_metrics(texts, gt_texts, training_masks, text_metrics):
     return text_metrics.compute_scores()
 
 
-def compute_kernels_metrics(
+def compute_kernel_metrics(
     kernels, gt_kernels, training_masks, kernel_metrics
 ):
     mask = gt_kernels * training_masks
 
-    kernel = kernels[:, -1, :, :]
+    kernel = kernels[:, :, :, -1]
     kernel = tf.math.sigmoid(kernel)
     kernel = tf.where(
         tf.greater(kernel, 0.5), tf.ones_like(kernel), tf.zeros_like(kernel)
@@ -118,7 +120,7 @@ def compute_kernels_metrics(
     kernel *= mask
     kernel = tf.cast(kernel, tf.float32)
 
-    gt_kernel = gt_kernels[:, -1, :, :]
+    gt_kernel = gt_kernels[:, :, :, -1]
     gt_kernel *= mask
     kernel_metrics.update(gt_kernel, kernel)
 

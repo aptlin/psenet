@@ -11,21 +11,23 @@ class Dataset:
         self,
         dataset_dir,
         batch_size,
-        max_side_length=config.RESIZE_LENGTH,
+        resize_length=config.RESIZE_LENGTH,
         min_scale=config.MIN_SCALE,
         kernel_num=config.KERNEL_NUM,
         num_readers=config.NUM_READERS,
         should_shuffle=False,
         should_repeat=False,
+        should_augment=True,
     ):
         self.dataset_dir = dataset_dir
         self.batch_size = batch_size
-        self.max_side_length = max_side_length
+        self.resize_length = resize_length
         self.num_readers = num_readers
         self.should_shuffle = should_shuffle
         self.should_repeat = should_repeat
         self.min_scale = min_scale
         self.kernel_num = kernel_num
+        self.should_augment = should_augment
 
     def _parse_example(self, example_prototype):
         features = {
@@ -113,7 +115,10 @@ class Dataset:
         tags = sample[config.TAGS]
         bboxes = sample[config.BBOXES]
 
-        image = preprocess.random_scale(image)
+        if self.should_augment:
+            image = preprocess.random_scale(image, self.resize_length)
+        else:
+            image = preprocess.scale(image, self.resize_length)
         image_shape = tf.shape(image)
         height = image_shape[0]
         width = image_shape[1]
@@ -126,25 +131,29 @@ class Dataset:
         gt_text = processed[1]
         training_mask = processed[2]
 
-        tensors = [image, gt_text, training_mask]
-        for idx in range(1, self.kernel_num):
-            tensors.append(gt_kernels[idx - 1])
-        tensors = preprocess.random_flip(tensors)
-        tensors = preprocess.random_rotate(tensors)
-        tensors = preprocess.background_random_crop(tensors, gt_text)
-        image, gt_text, training_mask, gt_kernels = (
-            tensors[0],
-            tensors[1],
-            tensors[2],
-            tensors[3:],
-        )
+        if self.should_augment:
+            tensors = [image, gt_text, training_mask]
+            for idx in range(1, self.kernel_num):
+                tensors.append(gt_kernels[idx - 1])
+            tensors = preprocess.random_flip(tensors)
+            tensors = preprocess.random_rotate(tensors)
+            tensors = preprocess.background_random_crop(tensors, gt_text)
+            image, gt_text, training_mask, gt_kernels = (
+                tensors[0],
+                tensors[1],
+                tensors[2],
+                tensors[3:],
+            )
         training_mask = tf.cast(training_mask, tf.float32)
         gt_text = tf.cast(gt_text, tf.float32)
         gt_text = tf.sign(gt_text)
+        gt_text = tf.cast(gt_text, tf.uint8)
+        gt_text = tf.expand_dims(gt_text, axis=0)
         image = tf.image.random_brightness(image, 32 / 255)
         image = tf.image.random_saturation(image, 0.5, 1.5)
         image = preprocess.normalize(image)
-        label = tf.stack(gt_text + gt_kernels)
+        label = tf.concat([gt_text, gt_kernels], axis=0)
+        label = tf.transpose(label, perm=[1, 2, 0])
         label = tf.cast(label, tf.float32)
         return (
             {
@@ -164,11 +173,15 @@ class Dataset:
         files = self._get_all_tfrecords()
 
         dataset = files.interleave(
-            lambda file: tf.data.TFRecordDataset(file)
-            .map(self._parse_example, num_parallel_calls=1)
-            .map(self._preprocess_example, num_parallel_calls=1),
+            tf.data.TFRecordDataset,
             cycle_length=self.num_readers,
             num_parallel_calls=self.num_readers,
+        )
+        dataset = dataset.map(
+            self._parse_example, num_parallel_calls=self.num_readers
+        )
+        dataset = dataset.map(
+            self._preprocess_example, num_parallel_calls=self.num_readers
         )
 
         if self.should_shuffle:
@@ -178,7 +191,6 @@ class Dataset:
             dataset = dataset.repeat()  # Repeat forever for training.
         else:
             dataset = dataset.repeat(1)
-        dataset = dataset
         dataset = dataset.padded_batch(
             self.batch_size,
             padded_shapes=(
@@ -187,7 +199,7 @@ class Dataset:
                     config.IMAGE: [None, None, 3],
                     config.TRAINING_MASK: [None, None],
                 },
-                [config.KERNEL_NUM, None, None],
+                [None, None, config.KERNEL_NUM],
             ),
         ).prefetch(self.batch_size)
         return dataset

@@ -1,9 +1,10 @@
 import cv2
 import numpy as np
-from psenet import config
-import tensorflow as tf
 import Polygon as plg
 import pyclipper
+import tensorflow as tf
+
+from psenet import config
 
 
 def random_flip(images, prob=0.5, dim=1):
@@ -127,11 +128,11 @@ def scale(image, resize_length=config.RESIZE_LENGTH):
     resize_length = tf.cast(resize_length, tf.float32)
     height = tf.cast(image_shape[0], tf.float32)
     width = tf.cast(image_shape[1], tf.float32)
-    max_side = tf.maximum(height, width)
+    max_side = tf.math.maximum(height, width)
 
-    is_greater = tf.greater(max_side, resize_length)
+    should_scale = tf.greater(max_side, resize_length)
     ratio = tf.cond(
-        is_greater,
+        should_scale,
         lambda: tf.math.divide(resize_length, max_side),
         lambda: 1.0,
     )
@@ -154,25 +155,27 @@ def scale(image, resize_length=config.RESIZE_LENGTH):
     output = tf.image.resize(
         image,
         [
-            tf.cast(tf.round(y_scale * height), tf.uint64),
-            tf.cast(tf.round(x_scale * width), tf.uint64),
+            tf.cast(tf.round(y_scale * height), tf.int64),
+            tf.cast(tf.round(x_scale * width), tf.int64),
         ],
         method=tf.image.ResizeMethod.NEAREST_NEIGHBOR,
     )
     return output
 
 
-def random_scale(image, prob=0.5):
-    image = scale(image)
+def random_scale(image, prob=0.5, resize_length=config.RESIZE_LENGTH):
+    image = scale(image, resize_length)
     random_value = tf.random.uniform([])
-    random_scale_factor = tf.random.uniform([], minval=0.5, maxval=3)
+    random_scale_factor = tf.random.uniform(
+        [], minval=0.5, maxval=3.0, dtype=tf.float32
+    )
     image_shape = tf.shape(image)
     height = tf.cast(image_shape[0], tf.float32)
     width = tf.cast(image_shape[1], tf.float32)
     min_side = tf.minimum(width, height)
     max_side = tf.maximum(width, height)
     should_limit_scale = tf.less_equal(
-        min_side * random_scale_factor, max_side
+        min_side * random_scale_factor, config.MIN_SIDE
     )
     random_scale_factor = tf.cond(
         should_limit_scale,
@@ -185,8 +188,8 @@ def random_scale(image, prob=0.5):
         lambda: tf.image.resize(
             image,
             [
-                tf.cast(tf.round(random_scale_factor * height), tf.uint64),
-                tf.cast(tf.round(random_scale_factor * width), tf.uint64),
+                tf.cast(tf.round(random_scale_factor * height), tf.int64),
+                tf.cast(tf.round(random_scale_factor * width), tf.int64),
             ],
             method=tf.image.ResizeMethod.NEAREST_NEIGHBOR,
         ),
