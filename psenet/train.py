@@ -81,7 +81,7 @@ FLAGS = flags.FLAGS
 
 def build_dataset(mode, dataset_dir):
     def input_fn():
-        is_training = mode == tf.estimator.ModeKeys.TRAIN
+        # is_training = mode == tf.estimator.ModeKeys.TRAIN
         dataset = Dataset(
             dataset_dir,
             FLAGS.batch_size,
@@ -92,7 +92,8 @@ def build_dataset(mode, dataset_dir):
             # should_shuffle=is_training,
             should_shuffle=False,
             should_repeat=True,
-            should_augment=is_training,
+            should_augment=False
+            # should_augment=is_training,
         ).build()
         features, labels = dataset.make_one_shot_iterator().get_next()
         return features, labels
@@ -104,19 +105,13 @@ def build_exporter():
     def serving_input_fn():
         features = {
             config.IMAGE: tf.placeholder(
-                dtype=tf.uint8, shape=[None, None, None, 3]
-            ),
-            config.MASK: tf.placeholder(
-                dtype=tf.uint8, shape=[None, None, None]
-            ),
+                dtype=tf.float32, shape=[None, None, None, 3]
+            )
         }
         receiver_tensors = {
             config.IMAGE: tf.placeholder(
-                dtype=tf.uint8, shape=[None, None, None, 3]
-            ),
-            config.MASK: tf.placeholder(
-                dtype=tf.uint8, shape=[None, None, None]
-            ),
+                dtype=tf.float32, shape=[None, None, None, 3]
+            )
         }
         return tf.estimator.export.ServingInputReceiver(
             features, receiver_tensors
@@ -140,79 +135,110 @@ def build_optimizer(params):
 
 def build_model(params):
     images = tf.keras.Input(
-        shape=[None, None, 3], name=config.IMAGE, dtype=tf.uint8
+        shape=[None, None, 3], name=config.IMAGE, dtype=tf.float32
     )
-    masks = tf.keras.Input(
-        shape=[None, None], name=config.MASK, dtype=tf.uint8
-    )
-    predictions = feature_pyramid_network(params)(images)
-    psenet = tf.keras.Model(
-        inputs={config.IMAGE: images, config.MASK: masks}, outputs=predictions
-    )
+    kernels = feature_pyramid_network(params)(images)
+
+    def augment(kernels):
+        kernels_shape = tf.keras.backend.shape(kernels)
+        batch_size = kernels_shape[0]
+        height = kernels_shape[1]
+        width = kernels_shape[2]
+        ones = tf.ones([batch_size, height, width, 1])
+        return tf.concat([kernels, ones], axis=-1)
+
+    predictions = tf.keras.layers.Lambda(
+        augment, output_shape=[None, None, params.n_kernels + 1]
+    )(kernels)
+    psenet = tf.keras.Model(inputs={config.IMAGE: images}, outputs=predictions)
 
     text_metrics_label = "Texts"
 
-    def text_overall_accuracy(labels, predictions):
-        return OverallAccuracy(text_metrics_label)(
-            *filter_texts(predictions[:, :, :, 0], labels[:, :, :, 0])
-        )
+    def text_overall_accuracy():
+        def compute(labels, predictions):
+            return OverallAccuracy(text_metrics_label)(
+                *filter_texts(predictions, labels, FLAGS.n_kernels)
+            )
 
-    def text_mean_accuracy(labels, predictions):
-        return MeanAccuracy(text_metrics_label)(
-            *filter_texts(predictions[:, :, :, 0], labels[:, :, :, 0])
-        )
+        return compute
 
-    def text_mean_iou(labels, predictions):
-        return MeanIOU(text_metrics_label)(
-            *filter_texts(predictions[:, :, :, 0], labels[:, :, :, 0])
-        )
+    def text_mean_accuracy():
+        def compute(labels, predictions):
+            return MeanAccuracy(text_metrics_label)(
+                *filter_texts(predictions, labels, FLAGS.n_kernels)
+            )
 
-    def text_fw_accuracy(labels, predictions):
-        return FrequencyWeightedAccuracy(text_metrics_label)(
-            *filter_texts(predictions[:, :, :, 0], labels[:, :, :, 0])
-        )
+        return compute
+
+    def text_mean_iou():
+        def compute(labels, predictions):
+            return MeanIOU(text_metrics_label)(
+                *filter_texts(predictions, labels, FLAGS.n_kernels)
+            )
+
+        return compute
+
+    def text_fw_accuracy():
+        def compute(labels, predictions):
+            return FrequencyWeightedAccuracy(text_metrics_label)(
+                *filter_texts(predictions, labels, FLAGS.n_kernels)
+            )
+
+        return compute
 
     kernel_metrics_label = "Kernels"
 
-    def kernel_overall_accuracy(labels, predictions):
-        return OverallAccuracy(kernel_metrics_label)(
-            *filter_kernels(predictions[:, :, :, 1:], labels[:, :, :, 1:])
-        )
+    def kernel_overall_accuracy():
+        def compute(labels, predictions):
+            return OverallAccuracy(kernel_metrics_label)(
+                *filter_kernels(predictions, labels, FLAGS.n_kernels)
+            )
 
-    def kernel_mean_accuracy(labels, predictions):
-        return MeanAccuracy(kernel_metrics_label)(
-            *filter_kernels(predictions[:, :, :, 1:], labels[:, :, :, 1:])
-        )
+        return compute
 
-    def kernel_mean_iou(labels, predictions):
-        return MeanIOU(kernel_metrics_label)(
-            *filter_kernels(predictions[:, :, :, 1:], labels[:, :, :, 1:])
-        )
+    def kernel_mean_accuracy():
+        def compute(labels, predictions):
+            return MeanAccuracy(kernel_metrics_label)(
+                *filter_kernels(predictions, labels, FLAGS.n_kernels)
+            )
 
-    def kernel_fw_accuracy(labels, predictions):
-        return FrequencyWeightedAccuracy(kernel_metrics_label)(
-            *filter_kernels(predictions[:, :, :, 1:], labels[:, :, :, 1:])
-        )
+        return compute
+
+    def kernel_mean_iou():
+        def compute(labels, predictions):
+            return MeanIOU(kernel_metrics_label)(
+                *filter_kernels(predictions, labels, FLAGS.n_kernels)
+            )
+
+        return compute
+
+    def kernel_fw_accuracy():
+        def compute(labels, predictions):
+            return FrequencyWeightedAccuracy(kernel_metrics_label)(
+                *filter_kernels(predictions, labels, FLAGS.n_kernels)
+            )
+
+        return compute
 
     psenet.compile(
         optimizer=build_optimizer(params),
-        loss=psenet_loss(masks),
+        loss=psenet_loss(FLAGS.n_kernels),
         metrics=[
-            text_overall_accuracy,
-            text_mean_accuracy,
-            text_mean_iou,
-            text_fw_accuracy,
-            kernel_overall_accuracy,
-            kernel_mean_accuracy,
-            kernel_mean_iou,
-            kernel_fw_accuracy,
+            text_overall_accuracy(),
+            text_mean_accuracy(),
+            text_mean_iou(),
+            text_fw_accuracy(),
+            kernel_overall_accuracy(),
+            kernel_mean_accuracy(),
+            kernel_mean_iou(),
+            kernel_fw_accuracy(),
         ],
     )
     return psenet
 
 
 def build_estimator(run_config):
-    tf.summary.FileWriterCache.clear()
+    tf.compat.v1.summary.FileWriterCache.clear()
 
     params = tf.contrib.training.HParams(
         n_kernels=FLAGS.n_kernels,
@@ -240,6 +266,7 @@ def build_estimator(run_config):
             tf.estimator.ModeKeys.EVAL, FLAGS.eval_data_dir
         ),
         exporters=exporter,
+        start_delay_secs=500,
     )
 
     return estimator, train_spec, eval_spec
@@ -249,7 +276,7 @@ def train(argv):
     estimator, train_spec, eval_spec = build_estimator(
         tf.estimator.RunConfig(
             model_dir=FLAGS.model_dir,
-            save_checkpoints_steps=config.SAVE_CHECKPOINTS_STEPS,
+            save_checkpoints_secs=config.SAVE_CHECKPOINTS_SECS,
             save_summary_steps=config.SAVE_SUMMARY_STEPS,
         )
     )

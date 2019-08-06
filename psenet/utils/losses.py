@@ -3,12 +3,12 @@ import tensorflow as tf
 from segmentation_models.losses import dice_loss
 
 
-def ohem_single(texts, gt_texts, training_masks):
+def ohem_single(texts, gt_texts, masks):
     has_positive_texts = tf.greater(gt_texts, 0.5)
-    has_positive_training_masks = tf.greater(training_masks, 0.5)
+    has_positive_training_masks = tf.greater(masks, 0.5)
 
-    training_masks = tf.cast(training_masks, tf.float32)
-    training_masks = tf.expand_dims(training_masks, axis=0)
+    masks = tf.cast(masks, tf.float32)
+    masks = tf.expand_dims(masks, axis=0)
 
     positive_texts_num = tf.cast(has_positive_texts, tf.int64)
     positive_texts_num = tf.math.reduce_sum(positive_texts_num)
@@ -48,21 +48,21 @@ def ohem_single(texts, gt_texts, training_masks):
         tf.logical_or(
             has_zero_net_positive_texts, has_zero_net_negative_texts
         ),
-        lambda: training_masks,
+        lambda: masks,
         lambda: selected_mask,
     )
 
     return output
 
 
-def ohem_batch(texts, gt_texts, training_masks):
+def ohem_batch(texts, gt_texts, masks):
     texts_count = tf.shape(texts)[0]
     texts_count = tf.cast(texts_count, tf.int64)
 
     indices = tf.range(texts_count, dtype=tf.int64)
     selected_masks = tf.map_fn(
         lambda idx: ohem_single(
-            texts[idx, :, :], gt_texts[idx, :, :], training_masks[idx, :, :]
+            texts[idx, :, :], gt_texts[idx, :, :], masks[idx, :, :]
         ),
         indices,
         dtype=tf.float32,
@@ -71,13 +71,14 @@ def ohem_batch(texts, gt_texts, training_masks):
     return selected_masks
 
 
-def psenet_loss(masks):
+def psenet_loss(n_kernels):
     def loss(gt_labels, pred_labels):
         text_scores = tf.math.sigmoid(pred_labels[:, :, :, 0])
-        kernels = pred_labels[:, :, :, 1:]
+        kernels = pred_labels[:, :, :, 1:n_kernels]
+        masks = pred_labels[:, :, :, n_kernels]
 
         gt_texts = gt_labels[:, :, :, 0]
-        gt_kernels = gt_labels[:, :, :, 1:]
+        gt_kernels = gt_labels[:, :, :, 1:n_kernels]
 
         selected_masks = ohem_batch(text_scores, gt_texts, masks)
 

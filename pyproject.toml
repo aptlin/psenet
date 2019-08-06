@@ -6,14 +6,13 @@ authors = ["Sasha Illarionov <sasha@sdll.space>"]
 
 [tool.poetry.dependencies]
 python = "^3.7"
-# segmentation-models = { git = "https://github.com/qubvel/segmentation_models.git", branch="feature/tf.keras" } 
+segmentation-models = { git = "https://github.com/qubvel/segmentation_models.git", branch="feature/tf.keras" } 
 opencv-python = "^4.1"
 tqdm = "^4.32"
 absl-py = "^0.7.1"
 Polygon3 = "^3.0"
 pyclipper = "^1.1"
 tensorflow = "^1.14"
-segmentation_models = "^0.2.1"
 
 [tool.poetry.dev-dependencies]
 pytest = "^3.0"

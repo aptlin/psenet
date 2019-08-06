@@ -144,18 +144,18 @@ class Dataset:
                 tensors[2],
                 tensors[3:],
             )
-        mask = tf.cast(mask, tf.float32)
         gt_text = tf.cast(gt_text, tf.float32)
         gt_text = tf.sign(gt_text)
         gt_text = tf.cast(gt_text, tf.uint8)
         gt_text = tf.expand_dims(gt_text, axis=0)
+        mask = tf.expand_dims(mask, axis=0)
         image = tf.image.random_brightness(image, 32 / 255)
         image = tf.image.random_saturation(image, 0.5, 1.5)
         image = tf.cast(image, tf.float32)
-        label = tf.concat([gt_text, gt_kernels], axis=0)
+        label = tf.concat([gt_text, gt_kernels, mask], axis=0)
         label = tf.transpose(label, perm=[1, 2, 0])
         label = tf.cast(label, tf.float32)
-        return ({config.IMAGE: image, config.MASK: mask}, label)
+        return ({config.IMAGE: image}, label)
 
     def _get_all_tfrecords(self):
         return tf.data.Dataset.list_files(
@@ -187,11 +187,8 @@ class Dataset:
         dataset = dataset.padded_batch(
             self.batch_size,
             padded_shapes=(
-                {
-                    config.IMAGE: [None, None, 3],
-                    config.MASK: [None, None],
-                },
-                [None, None, config.KERNEL_NUM],
+                {config.IMAGE: [None, None, 3]},
+                [None, None, config.KERNEL_NUM + 1],
             ),
         ).prefetch(self.batch_size)
         return dataset
