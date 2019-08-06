@@ -1,31 +1,6 @@
-import tensorflow as tf
-from segmentation_models import FPN
-from segmentation_models.losses import dice_loss
-
 from psenet import config
-
-
-def build_fpn(backbone_name: str, n_kernels=config.KERNEL_NUM):
-    return FPN(
-        backbone_name=backbone_name,
-        input_shape=(None, None, 3),
-        classes=n_kernels,
-        encoder_weights="imagenet",
-        encoder_freeze=False,
-        activation="sigmoid",
-        final_interpolation="nearest",
-        pyramid_block_filters=256,
-    )
-
-
-def lr_decay(learning_rate, global_step, decay_steps, decay_rate):
-    return tf.train.exponential_decay(
-        learning_rate,
-        global_step,
-        decay_steps=decay_steps,
-        decay_rate=decay_rate,
-        staircase=True,
-    )
+import tensorflow as tf
+from segmentation_models.losses import dice_loss
 
 
 def ohem_single(texts, gt_texts, training_masks):
@@ -46,7 +21,7 @@ def ohem_single(texts, gt_texts, training_masks):
 
     positive_texts_num -= positive_throwaways_num
 
-    has_net_positive_texts = tf.math.equal(positive_texts_num, 0)
+    has_zero_net_positive_texts = tf.math.equal(positive_texts_num, 0)
 
     has_negative_texts = tf.less_equal(gt_texts, 0.5)
 
@@ -56,7 +31,7 @@ def ohem_single(texts, gt_texts, training_masks):
         positive_texts_num * 3, negative_texts_num
     )
 
-    has_net_negative_texts = tf.math.equal(negative_texts_num, 0)
+    has_zero_net_negative_texts = tf.math.equal(negative_texts_num, 0)
 
     negative_scores = tf.boolean_mask(texts, has_negative_texts)
     negative_scores = tf.sort(negative_scores, direction="DESCENDING")
@@ -70,7 +45,9 @@ def ohem_single(texts, gt_texts, training_masks):
     selected_mask = tf.cast(selected_mask, tf.float32)
     selected_mask = tf.expand_dims(selected_mask, axis=0)
     output = tf.cond(
-        tf.logical_or(has_net_positive_texts, has_net_negative_texts),
+        tf.logical_or(
+            has_zero_net_positive_texts, has_zero_net_negative_texts
+        ),
         lambda: training_masks,
         lambda: selected_mask,
     )
@@ -94,34 +71,43 @@ def ohem_batch(texts, gt_texts, training_masks):
     return selected_masks
 
 
-def loss(ground_truth, predictions):
-    return dice_loss(ground_truth, predictions)
+def psenet_loss(masks):
+    def loss(gt_labels, pred_labels):
+        text_scores = tf.math.sigmoid(pred_labels[:, :, :, 0])
+        kernels = pred_labels[:, :, :, 1:]
 
+        gt_texts = gt_labels[:, :, :, 0]
+        gt_kernels = gt_labels[:, :, :, 1:]
 
-def compute_text_metrics(texts, gt_texts, training_masks, text_metrics):
-    texts = tf.where(
-        tf.greater(texts, 0.5), tf.ones_like(texts), tf.zeros_like(texts)
-    )
-    gt_text = gt_texts * training_masks
-    text_metrics.update(gt_text, texts)
-    return text_metrics.compute_scores()
+        selected_masks = ohem_batch(text_scores, gt_texts, masks)
 
+        text_loss = dice_loss(
+            gt_texts * selected_masks, text_scores * selected_masks
+        )
 
-def compute_kernel_metrics(
-    kernels, gt_kernels, training_masks, kernel_metrics
-):
-    mask = gt_kernels * training_masks
+        kernels_losses = []
+        selected_masks = tf.logical_and(
+            tf.greater(text_scores, 0.5), tf.greater(masks, 0.5)
+        )
+        selected_masks = tf.cast(selected_masks, tf.float32)
+        indices = tf.range(tf.shape(gt_labels)[3])
 
-    kernel = kernels[:, :, :, -1]
-    kernel = tf.math.sigmoid(kernel)
-    kernel = tf.where(
-        tf.greater(kernel, 0.5), tf.ones_like(kernel), tf.zeros_like(kernel)
-    )
-    kernel *= mask
-    kernel = tf.cast(kernel, tf.float32)
+        def compute_kernel_loss(index):
+            kernel_score = tf.math.sigmoid(kernels[:, :, :, index])
+            return dice_loss(
+                gt_kernels[:, :, :, index] * selected_masks,
+                kernel_score * selected_masks,
+            )
 
-    gt_kernel = gt_kernels[:, :, :, -1]
-    gt_kernel *= mask
-    kernel_metrics.update(gt_kernel, kernel)
+        kernels_loss = tf.math.reduce_sum(
+            tf.map_fn(compute_kernel_loss, indices, dtype=tf.float32)
+        )
+        kernels_loss = tf.math.reduce_mean(kernels_losses)
 
-    return kernel_metrics.compute_scores()
+        current_loss = (
+            config.TEXT_LOSS_WEIGHT * text_loss
+            + config.KERNELS_LOSS_WEIGHT * kernels_loss
+        )
+        return current_loss
+
+    return loss

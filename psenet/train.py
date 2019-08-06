@@ -1,12 +1,18 @@
-from functools import partial
-
 import tensorflow as tf
 from absl import app, flags
 
 from psenet import config
-from psenet.utils import training
-from psenet.utils.metrics import RunningScore
 from psenet.data.generator import Dataset
+from psenet.utils.layers import feature_pyramid_network
+from psenet.utils.losses import psenet_loss
+from psenet.utils.metrics import (
+    OverallAccuracy,
+    MeanAccuracy,
+    MeanIOU,
+    FrequencyWeightedAccuracy,
+    filter_kernels,
+    filter_texts,
+)
 
 flags.DEFINE_string("model_dir", config.MODEL_DIR, "The model directory")
 flags.DEFINE_string(
@@ -64,7 +70,7 @@ flags.DEFINE_integer(
 flags.DEFINE_float("min_scale", config.MIN_SCALE, "Minimum scale of kernels")
 flags.DEFINE_integer(
     "batch_size",
-    config.NUM_READERS,
+    config.BATCH_SIZE,
     "The batch size for training and evaluation",
 )
 flags.DEFINE_integer(
@@ -94,95 +100,120 @@ def build_dataset(mode, dataset_dir):
     return input_fn
 
 
-def build_model(features, labels, mode, params):
-    text_metrics = RunningScore(2, "Texts")
-    kernel_metrics = RunningScore(2, "Kernels")
-    images = features[config.IMAGE]
-
-    fpn = training.build_fpn(params.backbone_name, params.n_kernels)
-    predictions = fpn(images)
-
-    if mode == tf.estimator.ModeKeys.PREDICT:
-        return tf.estimator.EstimatorSpec(mode, predictions=predictions)
-    else:
-        text_scores = tf.math.sigmoid(predictions[:, :, :, 0])
-        kernels = predictions[:, :, :, 1:]
-
-        gt_texts = labels[:, :, :, 0]
-        gt_kernels = labels[:, :, :, 1:]
-
-        training_masks = features[config.TRAINING_MASK]
-        selected_masks = training.ohem_batch(
-            text_scores, gt_texts, training_masks
+def build_exporter():
+    def serving_input_fn():
+        features = {
+            config.IMAGE: tf.placeholder(
+                dtype=tf.uint8, shape=[None, None, None, 3]
+            ),
+            config.MASK: tf.placeholder(
+                dtype=tf.uint8, shape=[None, None, None]
+            ),
+        }
+        receiver_tensors = {
+            config.IMAGE: tf.placeholder(
+                dtype=tf.uint8, shape=[None, None, None, 3]
+            ),
+            config.MASK: tf.placeholder(
+                dtype=tf.uint8, shape=[None, None, None]
+            ),
+        }
+        return tf.estimator.export.ServingInputReceiver(
+            features, receiver_tensors
         )
 
-        text_loss = training.loss(
-            gt_texts * selected_masks, text_scores * selected_masks
+    return tf.estimator.LatestExporter(
+        name="exporter", serving_input_receiver_fn=serving_input_fn
+    )
+
+
+def build_optimizer(params):
+    return tf.keras.optimizers.SGD(
+        learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
+            params.learning_rate,
+            decay_steps=params.decay_steps,
+            decay_rate=params.decay_rate,
+            staircase=True,
+        )
+    )
+
+
+def build_model(params):
+    images = tf.keras.Input(
+        shape=[None, None, 3], name=config.IMAGE, dtype=tf.uint8
+    )
+    masks = tf.keras.Input(
+        shape=[None, None], name=config.MASK, dtype=tf.uint8
+    )
+    predictions = feature_pyramid_network(params)(images)
+    psenet = tf.keras.Model(
+        inputs={config.IMAGE: images, config.MASK: masks}, outputs=predictions
+    )
+
+    text_metrics_label = "Texts"
+
+    def text_overall_accuracy(labels, predictions):
+        return OverallAccuracy(text_metrics_label)(
+            *filter_texts(predictions[:, :, :, 0], labels[:, :, :, 0])
         )
 
-        kernels_losses = []
-        selected_masks = tf.logical_and(
-            tf.greater(text_scores, 0.5), tf.greater(training_masks, 0.5)
-        )
-        selected_masks = tf.cast(selected_masks, tf.float32)
-        for idx in range(params.n_kernels - 1):
-            kernel_score = tf.math.sigmoid(kernels[:, :, :, idx])
-            kernels_losses.append(
-                training.loss(
-                    gt_kernels[:, :, :, idx] * selected_masks,
-                    kernel_score * selected_masks,
-                )
-            )
-        kernels_loss = tf.math.reduce_mean(kernels_losses)
-
-        current_loss = (
-            config.TEXT_LOSS_WEIGHT * text_loss
-            + config.KERNELS_LOSS_WEIGHT * kernels_loss
+    def text_mean_accuracy(labels, predictions):
+        return MeanAccuracy(text_metrics_label)(
+            *filter_texts(predictions[:, :, :, 0], labels[:, :, :, 0])
         )
 
-        text_results = training.compute_text_metrics(
-            text_scores, gt_texts, training_masks, text_metrics
-        )
-        kernel_results = training.compute_kernel_metrics(
-            kernels, gt_kernels, training_masks, kernel_metrics
+    def text_mean_iou(labels, predictions):
+        return MeanIOU(text_metrics_label)(
+            *filter_texts(predictions[:, :, :, 0], labels[:, :, :, 0])
         )
 
-        if mode == tf.estimator.ModeKeys.EVAL:
-            return tf.estimator.EstimatorSpec(
-                mode,
-                loss=current_loss,
-                eval_metric_ops={**text_results, **kernel_results},
-            )
-        elif mode == tf.estimator.ModeKeys.TRAIN:
-            decay_rate = params.decay_rate
-            decay_steps = params.decay_steps
-            train_op = tf.contrib.layers.optimize_loss(
-                loss=current_loss,
-                global_step=tf.train.get_global_step(),
-                learning_rate=params.learning_rate,
-                optimizer="SGD",
-                learning_rate_decay_fn=partial(
-                    training.lr_decay,
-                    decay_rate=decay_rate,
-                    decay_steps=decay_steps,
-                ),
-                # clip_gradients=params.gradient_clipping_norm,
-                summaries=[
-                    "learning_rate",
-                    "loss",
-                    "gradients",
-                    "gradient_norm",
-                ],
-            )
-            return tf.estimator.EstimatorSpec(
-                mode, loss=current_loss, train_op=train_op
-            )
+    def text_fw_accuracy(labels, predictions):
+        return FrequencyWeightedAccuracy(text_metrics_label)(
+            *filter_texts(predictions[:, :, :, 0], labels[:, :, :, 0])
+        )
 
-        else:
-            raise NotImplementedError("Unknown mode {}".format(mode))
+    kernel_metrics_label = "Kernels"
+
+    def kernel_overall_accuracy(labels, predictions):
+        return OverallAccuracy(kernel_metrics_label)(
+            *filter_kernels(predictions[:, :, :, 1:], labels[:, :, :, 1:])
+        )
+
+    def kernel_mean_accuracy(labels, predictions):
+        return MeanAccuracy(kernel_metrics_label)(
+            *filter_kernels(predictions[:, :, :, 1:], labels[:, :, :, 1:])
+        )
+
+    def kernel_mean_iou(labels, predictions):
+        return MeanIOU(kernel_metrics_label)(
+            *filter_kernels(predictions[:, :, :, 1:], labels[:, :, :, 1:])
+        )
+
+    def kernel_fw_accuracy(labels, predictions):
+        return FrequencyWeightedAccuracy(kernel_metrics_label)(
+            *filter_kernels(predictions[:, :, :, 1:], labels[:, :, :, 1:])
+        )
+
+    psenet.compile(
+        optimizer=build_optimizer(params),
+        loss=psenet_loss(masks),
+        metrics=[
+            text_overall_accuracy,
+            text_mean_accuracy,
+            text_mean_iou,
+            text_fw_accuracy,
+            kernel_overall_accuracy,
+            kernel_mean_accuracy,
+            kernel_mean_iou,
+            kernel_fw_accuracy,
+        ],
+    )
+    return psenet
 
 
 def build_estimator(run_config):
+    tf.summary.FileWriterCache.clear()
+
     params = tf.contrib.training.HParams(
         n_kernels=FLAGS.n_kernels,
         backbone_name=FLAGS.backbone_name,
@@ -190,9 +221,14 @@ def build_estimator(run_config):
         decay_steps=FLAGS.decay_steps,
         learning_rate=FLAGS.learning_rate,
     )
-    estimator = tf.estimator.Estimator(
-        model_fn=build_model, config=run_config, params=params
+
+    psenet = build_model(params)
+    estimator = tf.keras.estimator.model_to_estimator(
+        keras_model=psenet, model_dir=FLAGS.model_dir, config=run_config
     )
+
+    exporter = build_exporter()
+
     train_spec = tf.estimator.TrainSpec(
         input_fn=build_dataset(
             tf.estimator.ModeKeys.TRAIN, FLAGS.training_data_dir
@@ -200,7 +236,10 @@ def build_estimator(run_config):
         max_steps=FLAGS.n_epochs,
     )
     eval_spec = tf.estimator.EvalSpec(
-        input_fn=build_dataset(tf.estimator.ModeKeys.EVAL, FLAGS.eval_data_dir)
+        input_fn=build_dataset(
+            tf.estimator.ModeKeys.EVAL, FLAGS.eval_data_dir
+        ),
+        exporters=exporter,
     )
 
     return estimator, train_spec, eval_spec

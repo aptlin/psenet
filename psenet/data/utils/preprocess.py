@@ -128,6 +128,8 @@ def scale(image, resize_length=config.RESIZE_LENGTH):
     resize_length = tf.cast(resize_length, tf.float32)
     height = tf.cast(image_shape[0], tf.float32)
     width = tf.cast(image_shape[1], tf.float32)
+    height = tf.math.maximum(height, config.MIN_SIDE)
+    width = tf.math.maximum(width, config.MIN_SIDE)
     max_side = tf.math.maximum(height, width)
 
     should_scale = tf.greater(max_side, resize_length)
@@ -172,14 +174,14 @@ def random_scale(image, prob=0.5, resize_length=config.RESIZE_LENGTH):
     image_shape = tf.shape(image)
     height = tf.cast(image_shape[0], tf.float32)
     width = tf.cast(image_shape[1], tf.float32)
-    min_side = tf.minimum(width, height)
-    max_side = tf.maximum(width, height)
+    min_side = tf.math.minimum(width, height)
+    max_side = tf.math.maximum(width, height)
     should_limit_scale = tf.less_equal(
         min_side * random_scale_factor, config.MIN_SIDE
     )
     random_scale_factor = tf.cond(
         should_limit_scale,
-        lambda: (max_side + 10.0) / min_side,
+        lambda: (max_side + 32.0) / config.MIN_SIDE,
         lambda: random_scale_factor,
     )
     should_resize = tf.less_equal(random_value, prob)

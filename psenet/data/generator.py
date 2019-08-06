@@ -86,7 +86,7 @@ class Dataset:
     def _process_tagged_bboxes(self, bboxes, tags, height, width):
         tags = str(tags)
         gt_text = np.zeros([height, width], dtype="uint8")
-        training_mask = np.ones([height, width], dtype="uint8")
+        mask = np.ones([height, width], dtype="uint8")
         bboxes_count, bboxes_width = np.asarray(bboxes.shape).astype("int64")[
             :2
         ]
@@ -98,7 +98,7 @@ class Dataset:
             for i in range(bboxes_count):
                 cv2.drawContours(gt_text, [bboxes[i]], -1, i + 1, -1)
                 if tags[i] != "1":
-                    cv2.drawContours(training_mask, [bboxes[i]], -1, 0, -1)
+                    cv2.drawContours(mask, [bboxes[i]], -1, 0, -1)
 
         gt_kernels = []
         for i in range(1, self.kernel_num):
@@ -108,7 +108,7 @@ class Dataset:
             for i in range(bboxes_count):
                 cv2.drawContours(gt_kernel, [kernel_bboxes[i]], -1, 1, -1)
             gt_kernels.append(gt_kernel)
-        return gt_kernels, gt_text, training_mask
+        return gt_kernels, gt_text, mask
 
     def _preprocess_example(self, sample):
         image = sample[config.IMAGE]
@@ -129,40 +129,33 @@ class Dataset:
         )
         gt_kernels = processed[0]
         gt_text = processed[1]
-        training_mask = processed[2]
+        mask = processed[2]
 
         if self.should_augment:
-            tensors = [image, gt_text, training_mask]
+            tensors = [image, gt_text, mask]
             for idx in range(1, self.kernel_num):
                 tensors.append(gt_kernels[idx - 1])
             tensors = preprocess.random_flip(tensors)
             tensors = preprocess.random_rotate(tensors)
             tensors = preprocess.background_random_crop(tensors, gt_text)
-            image, gt_text, training_mask, gt_kernels = (
+            image, gt_text, mask, gt_kernels = (
                 tensors[0],
                 tensors[1],
                 tensors[2],
                 tensors[3:],
             )
-        training_mask = tf.cast(training_mask, tf.float32)
+        mask = tf.cast(mask, tf.float32)
         gt_text = tf.cast(gt_text, tf.float32)
         gt_text = tf.sign(gt_text)
         gt_text = tf.cast(gt_text, tf.uint8)
         gt_text = tf.expand_dims(gt_text, axis=0)
         image = tf.image.random_brightness(image, 32 / 255)
         image = tf.image.random_saturation(image, 0.5, 1.5)
-        image = preprocess.normalize(image)
+        image = tf.cast(image, tf.float32)
         label = tf.concat([gt_text, gt_kernels], axis=0)
         label = tf.transpose(label, perm=[1, 2, 0])
         label = tf.cast(label, tf.float32)
-        return (
-            {
-                config.IMAGE_NAME: sample[config.IMAGE_NAME],
-                config.IMAGE: image,
-                config.TRAINING_MASK: training_mask,
-            },
-            label,
-        )
+        return ({config.IMAGE: image, config.MASK: mask}, label)
 
     def _get_all_tfrecords(self):
         return tf.data.Dataset.list_files(
@@ -195,9 +188,8 @@ class Dataset:
             self.batch_size,
             padded_shapes=(
                 {
-                    config.IMAGE_NAME: [],
                     config.IMAGE: [None, None, 3],
-                    config.TRAINING_MASK: [None, None],
+                    config.MASK: [None, None],
                 },
                 [None, None, config.KERNEL_NUM],
             ),
