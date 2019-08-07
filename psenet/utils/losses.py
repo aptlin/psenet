@@ -26,7 +26,7 @@ def dice_loss(labels, predictions, masks):
 
 def ohem_single(labels, predictions, masks):
     has_positive_texts = tf.greater(labels, 0.5)
-    has_positive_training_masks = tf.greater(masks, 0.5)
+    has_positive_masks = tf.greater(masks, 0.5)
 
     masks = tf.cast(masks, tf.float32)
     masks = tf.expand_dims(masks, axis=0)
@@ -35,7 +35,7 @@ def ohem_single(labels, predictions, masks):
     positive_texts_num = tf.math.reduce_sum(positive_texts_num)
 
     positive_throwaways_num = tf.logical_and(
-        has_positive_texts, tf.logical_not(has_positive_training_masks)
+        has_positive_texts, tf.logical_not(has_positive_masks)
     )
     positive_throwaways_num = tf.cast(positive_throwaways_num, tf.int64)
     positive_throwaways_num = tf.math.reduce_sum(positive_throwaways_num)
@@ -54,25 +54,28 @@ def ohem_single(labels, predictions, masks):
 
     has_zero_net_negative_texts = tf.math.equal(negative_texts_num, 0)
 
-    negative_scores = tf.boolean_mask(predictions, has_negative_texts)
-    negative_scores = tf.sort(negative_scores, direction="DESCENDING")
-    threshold = negative_scores[negative_texts_num - 1]
+    def compute_selected_mask():
+        negative_scores = tf.boolean_mask(predictions, has_negative_texts)
+        negative_scores = tf.sort(negative_scores, direction="DESCENDING")
+        threshold = negative_scores[negative_texts_num - 1]
 
-    selected_mask = tf.logical_and(
-        has_positive_training_masks,
-        tf.logical_or(
-            tf.greater_equal(predictions, threshold), has_positive_texts
-        ),
-    )
+        selected_mask = tf.logical_and(
+            has_positive_masks,
+            tf.logical_or(
+                tf.greater_equal(predictions, threshold), has_positive_texts
+            ),
+        )
 
-    selected_mask = tf.cast(selected_mask, tf.float32)
-    selected_mask = tf.expand_dims(selected_mask, axis=0)
+        selected_mask = tf.cast(selected_mask, tf.float32)
+        selected_mask = tf.expand_dims(selected_mask, axis=0)
+        return selected_mask
+
     output = tf.cond(
         tf.logical_or(
             has_zero_net_positive_texts, has_zero_net_negative_texts
         ),
         lambda: masks,
-        lambda: selected_mask,
+        compute_selected_mask,
     )
 
     return output

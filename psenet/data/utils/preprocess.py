@@ -47,7 +47,20 @@ def random_rotate(images, prob=0.5):
     return rotated_images
 
 
-def background_random_crop(
+def random_clip(location, side_length, crop_size):
+    return tf.cond(
+        tf.greater(side_length, crop_size),
+        lambda: tf.math.minimum(
+            tf.random.uniform(
+                [], minval=0, maxval=side_length - crop_size, dtype=tf.int64
+            ),
+            location,
+        ),
+        lambda: tf.cast(0, tf.int64),
+    )
+
+
+def random_background_crop(
     images, text, crop_size=config.CROP_SIZE, prob=3 / 8
 ):
     random_value = tf.random.uniform([])
@@ -57,92 +70,90 @@ def background_random_crop(
     width = text_shape[1]
     width = tf.cast(width, tf.int64)
     should_not_crop = tf.logical_and(
-        tf.equal(width, crop_size), tf.equal(height, crop_size)
+        tf.less_equal(width, crop_size), tf.less_equal(height, crop_size)
     )
     should_search = tf.logical_and(
         tf.greater(random_value, prob), tf.greater(tf.count_nonzero(text), 0)
     )
 
-    non_zero_text_locs = tf.where(tf.math.greater(text, 0))
-    left_texts = tf.math.reduce_min(non_zero_text_locs, axis=1) - crop_size
+    def search_for_the_background():
+        text_locations = tf.where(tf.math.greater(text, 0))
 
-    left_texts = tf.where(
-        tf.math.less(left_texts, 0), tf.zeros_like(left_texts), left_texts
-    )
-    right_background = tf.math.reduce_max(non_zero_text_locs, axis=1)
-    right_background = tf.where(
-        tf.math.less(right_background, 0),
-        tf.zeros_like(right_background),
-        right_background,
-    )
-    right_background_y = tf.math.minimum(
-        right_background[0], tf.math.abs(height - crop_size)
-    )
-    right_background_x = tf.math.minimum(
-        right_background[1], tf.math.abs(width - crop_size)
-    )
-    start_y = tf.cond(
-        tf.not_equal(left_texts[0], right_background_y),
-        lambda: tf.random.uniform(
-            [], minval=left_texts[0], maxval=right_background_y, dtype=tf.int64
-        ),
-        lambda: left_texts[0],
-    )
-    start_x = tf.cond(
-        tf.not_equal(left_texts[1], right_background_x),
-        lambda: tf.random.uniform(
-            [], minval=left_texts[1], maxval=right_background_x, dtype=tf.int64
-        ),
-        lambda: left_texts[1],
-    )
-    default_start_y = tf.cond(
-        tf.greater(height, crop_size),
-        lambda: tf.random.uniform(
-            [], minval=0, maxval=height - crop_size, dtype=tf.int64
-        ),
-        lambda: tf.cast(0, tf.int64),
-    )
-    default_start_x = tf.cond(
-        tf.greater(width, crop_size),
-        lambda: tf.random.uniform(
-            [], minval=0, maxval=width - crop_size, dtype=tf.int64
-        ),
-        lambda: tf.cast(0, tf.int64),
-    )
-    start_y = tf.cond(should_search, lambda: start_y, lambda: default_start_y)
-    start_x = tf.cond(should_search, lambda: start_x, lambda: default_start_x)
+        left_borders = tf.math.reduce_min(text_locations, axis=1)
+        right_borders = tf.math.reduce_max(text_locations, axis=1)
 
-    end_y = start_y + crop_size
-    end_x = start_x + crop_size
-
-    new_images = []
-    for idx in range(len(images)):
-        image = images[idx][start_y:end_y, start_x:end_x]
-        image_shape = tf.shape(image)
-        image_height = tf.cast(image_shape[0], tf.float32)
-        image_width = tf.cast(image_shape[1], tf.float32)
-        image_height = tf.math.floor(image_height / 32.0) * 32
-        image_height = tf.cast(image_height, tf.int64)
-        image_width = tf.math.floor(image_width / 32.0) * 32
-        image_width = tf.cast(image_width, tf.int64)
-        new_images.append(image[:image_height, :image_width])
-
-    output = tf.cond(should_not_crop, lambda: images, lambda: new_images)
-    return output
-
-
-def adjust_scaling_factor(side, scaling_factor):
-    rounded_side = tf.round(side * scaling_factor)
-    is_div_by_32 = tf.equal(tf.math.mod(rounded_side, 32), 0.0)
-    output = (
-        tf.cond(
-            is_div_by_32,
-            lambda: rounded_side,
-            lambda: (tf.floor(rounded_side / 32.0) + 1.0) * 32.0,
+        start_y = tf.cond(
+            tf.not_equal(left_borders[0], right_borders[0]),
+            lambda: tf.random.uniform(
+                [],
+                minval=left_borders[0],
+                maxval=right_borders[0],
+                dtype=tf.int64,
+            ),
+            lambda: left_borders[0],
         )
-        / side
-    )
+        start_x = tf.cond(
+            tf.not_equal(left_borders[1], right_borders[1]),
+            lambda: tf.random.uniform(
+                [],
+                minval=left_borders[1],
+                maxval=right_borders[1],
+                dtype=tf.int64,
+            ),
+            lambda: left_borders[1],
+        )
+
+        start_y = random_clip(start_y, height, crop_size)
+        start_x = random_clip(start_x, width, crop_size)
+
+        return start_x, start_y
+
+    def get_default_coords():
+        default_start_y = tf.cond(
+            tf.greater(height, crop_size),
+            lambda: tf.random.uniform(
+                [], minval=0, maxval=height - crop_size, dtype=tf.int64
+            ),
+            lambda: tf.cast(0, tf.int64),
+        )
+        default_start_x = tf.cond(
+            tf.greater(width, crop_size),
+            lambda: tf.random.uniform(
+                [], minval=0, maxval=width - crop_size, dtype=tf.int64
+            ),
+            lambda: tf.cast(0, tf.int64),
+        )
+        return default_start_x, default_start_y
+
+    def crop_background():
+        start_x, start_y = tf.cond(
+            should_search, search_for_the_background, get_default_coords
+        )
+
+        end_y = start_y + crop_size
+        end_x = start_x + crop_size
+
+        new_images = []
+        for idx in range(len(images)):
+            image = images[idx][start_y:end_y, start_x:end_x]
+            image_shape = tf.shape(image)
+            image_height = tf.cast(image_shape[0], tf.float32)
+            image_width = tf.cast(image_shape[1], tf.float32)
+            image_height = adjust_side(image_height)
+            image_height = tf.cast(image_height, tf.int64)
+            image_width = adjust_side(image_width)
+            image_width = tf.cast(image_width, tf.int64)
+            new_images.append(image[:image_height, :image_width])
+        return new_images
+
+    output = tf.cond(should_not_crop, lambda: images, crop_background)
     return output
+
+
+def adjust_side(side):
+    return tf.math.maximum(
+        tf.floor(side / config.MIN_SIDE) * config.MIN_SIDE, config.MIN_SIDE
+    )
 
 
 def scale(image, resize_length=config.RESIZE_LENGTH):
@@ -162,13 +173,11 @@ def scale(image, resize_length=config.RESIZE_LENGTH):
         lambda: 1.0,
     )
 
-    x_scale = adjust_scaling_factor(width, scaling_factor)
-    y_scale = adjust_scaling_factor(height, scaling_factor)
     output = tf.image.resize(
         image,
         [
-            tf.cast(tf.round(y_scale * height), tf.int64),
-            tf.cast(tf.round(x_scale * width), tf.int64),
+            tf.cast(adjust_side(tf.round(scaling_factor * height)), tf.int64),
+            tf.cast(adjust_side(tf.round(scaling_factor * width)), tf.int64),
         ],
         method=tf.image.ResizeMethod.NEAREST_NEIGHBOR,
     )
@@ -183,28 +192,27 @@ def random_scale(image, prob=0.5, resize_length=config.RESIZE_LENGTH):
     image_shape = tf.shape(image)
     height = tf.cast(image_shape[0], tf.float32)
     width = tf.cast(image_shape[1], tf.float32)
-    min_side = tf.math.minimum(width, height)
-    max_side = tf.math.maximum(width, height)
-    should_limit_scale = tf.less_equal(
-        min_side * random_scaling_factor, config.MIN_SIDE
-    )
+    new_min_side = tf.math.minimum(width, height) * random_scaling_factor
+    should_adjust_scale = tf.less(new_min_side, config.MIN_SIDE)
     random_scaling_factor = tf.cond(
-        should_limit_scale,
-        lambda: (max_side + 10.0) / config.MIN_SIDE,
+        should_adjust_scale,
+        lambda: config.MIN_SIDE / new_min_side,
         lambda: random_scaling_factor,
     )
     should_resize = tf.less_equal(random_value, prob)
-    height_scaling_factor = adjust_scaling_factor(
-        height, random_scaling_factor
-    )
-    width_scaling_factor = adjust_scaling_factor(width, random_scaling_factor)
     output = tf.cond(
         should_resize,
         lambda: tf.image.resize(
             image,
             [
-                tf.cast(tf.round(height_scaling_factor * height), tf.int64),
-                tf.cast(tf.round(width_scaling_factor * width), tf.int64),
+                tf.cast(
+                    adjust_side(tf.round(random_scaling_factor * height)),
+                    tf.int64,
+                ),
+                tf.cast(
+                    adjust_side(tf.round(random_scaling_factor * width)),
+                    tf.int64,
+                ),
             ],
             method=tf.image.ResizeMethod.NEAREST_NEIGHBOR,
         ),

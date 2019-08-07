@@ -17,9 +17,10 @@ def filter_texts(labels, predictions, n_kernels):
 
 
 def filter_kernels(labels, predictions, n_kernels):
+    gt_texts = labels[:, :, :, 0]
     gt_kernels = labels[:, :, :, 1:n_kernels]
     masks = labels[:, :, :, n_kernels]
-    mask = gt_kernels * masks
+    mask = gt_texts * masks
 
     kernel = predictions[:, :, :, -1]
     kernel = tf.math.sigmoid(kernel)
@@ -41,18 +42,28 @@ class RunningScore:
         self.name = name
         self.metric_type = metric_type
         self.n_classes = n_classes
-        # self.confusion_matrix = tf.zeros(
-        #     [n_classes, n_classes],
-        #     dtype=tf.float32,
-        #     name=f"{self.name}/{self.metric_type}/confusion-matrix",
-        # )
-        self.confusion_matrix = tf.keras.backend.variable(
-            tf.zeros(
-                [n_classes, n_classes],
-                dtype=tf.float32,
-                name=f"{self.name}/{self.metric_type}/confusion-matrix",
-            )
+        self.confusion_matrix = tf.zeros(
+            [self.n_classes, self.n_classes],
+            dtype=tf.float32,
+            name=f"{self.name}/{self.metric_type}-confusion-matrix",
         )
+        self.label = f"{self.name}/{self.metric_type}-score"
+
+    # @property
+    # def confusion_matrix(self):
+    #     with tf.variable_scope(
+    #         f"{self.name}-{self.metric_type}", reuse=tf.AUTO_REUSE
+    #     ):
+    #         confusion_matrix = tf.get_variable(
+    #             name="confusion-matrix",
+    #             initializer=tf.zeros(
+    #                 [self.n_classes, self.n_classes],
+    #                 dtype=tf.float32,
+    #                 name=f"{self.name}/{self.metric_type}-confusion-matrix",
+    #             ),
+    #             aggregation=tf.VariableAggregation.SUM,
+    #         )
+    #     return confusion_matrix
 
     def _compute_confusion(self, ground_truth, prediction):
         mask = tf.logical_and(
@@ -90,11 +101,11 @@ class RunningScore:
         increment = tf.math.reduce_sum(
             tf.map_fn(get_increment, indices, dtype=tf.float32)
         )
-        # self.confusion_matrix += increment
-        # self.confusion_matrix.assign(self.confusion_matrix + increment)
-        self.confusion_matrix.assign_add(
-            tf.fill(tf.shape(self.confusion_matrix), increment)
-        )
+        self.confusion_matrix += increment
+        # self.confusion_matrix.assign_add(
+        #     tf.fill(tf.shape(self.confusion_matrix), increment),
+        #     use_locking=True,
+        # )
 
     @abstractmethod
     def __call__(self, ground_truth, prediction):
@@ -112,7 +123,11 @@ class OverallAccuracy(RunningScore):
         epsilon = config.EPSILON
         diagonal = tf.linalg.diag_part(self.confusion_matrix)
         total_sum = tf.math.reduce_sum(self.confusion_matrix)
-        overall_accuracy = tf.math.reduce_sum(diagonal) / (total_sum + epsilon)
+        overall_accuracy = tf.math.divide(
+            tf.math.reduce_sum(diagonal),
+            (total_sum + epsilon),
+            name=self.label,
+        )
         return overall_accuracy
 
 
@@ -125,7 +140,9 @@ class MeanAccuracy(RunningScore):
         epsilon = config.EPSILON
         diagonal = tf.linalg.diag_part(self.confusion_matrix)
         columns = tf.math.reduce_sum(self.confusion_matrix, axis=1)
-        mean_accuracy = tf.math.reduce_mean(diagonal / (columns + epsilon))
+        mean_accuracy = tf.math.reduce_mean(
+            diagonal / (columns + epsilon), name=self.label
+        )
         return mean_accuracy
 
 
@@ -142,7 +159,7 @@ class MeanIOU(RunningScore):
         columns = tf.math.reduce_sum(self.confusion_matrix, axis=1)
         rows = tf.math.reduce_sum(self.confusion_matrix, axis=0)
         iou = diagonal / (columns + rows - diagonal + epsilon)
-        mean_iou = tf.math.reduce_mean(iou)
+        mean_iou = tf.math.reduce_mean(iou, name=self.label)
         return mean_iou
 
 
@@ -163,6 +180,42 @@ class FrequencyWeightedAccuracy(RunningScore):
         frequency = columns / (total_sum + epsilon)
         fwaccuracy = tf.math.reduce_sum(
             tf.boolean_mask(frequency, tf.greater(frequency, 0))
-            * tf.boolean_mask(iou, tf.greater(frequency, 0))
+            * tf.boolean_mask(iou, tf.greater(frequency, 0)),
+            name=self.label,
         )
         return fwaccuracy
+
+
+def filter_input(metric_type):
+    if metric_type == config.KERNEL_METRICS:
+        return filter_kernels
+    elif metric_type == config.TEXT_METRICS:
+        return filter_texts
+    else:
+        raise NotImplementedError("The metric type has not been recognised.")
+
+
+def build_metrics(
+    n_kernels,
+    metrics=[
+        OverallAccuracy,
+        MeanAccuracy,
+        MeanIOU,
+        FrequencyWeightedAccuracy,
+    ],
+    metric_names=[config.TEXT_METRICS, config.KERNEL_METRICS],
+):
+    def compute(labels, predictions):
+        computed_metrics = {}
+        for name in metric_names:
+            for metric in metrics:
+                y_true, y_pred = filter_input(name)(
+                    labels, predictions[config.KERNELS], n_kernels
+                )
+                metric_object = metric(name)
+                val = metric(name)(y_true, y_pred)
+                label = metric_object.label
+                computed_metrics[label] = tf.metrics.mean(val, name=label)
+        return computed_metrics
+
+    return compute

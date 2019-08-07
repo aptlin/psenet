@@ -5,14 +5,7 @@ from psenet import config
 from psenet.data.generator import Dataset
 from psenet.utils.layers import feature_pyramid_network
 from psenet.utils.losses import psenet_loss
-from psenet.utils.metrics import (
-    OverallAccuracy,
-    MeanAccuracy,
-    MeanIOU,
-    FrequencyWeightedAccuracy,
-    filter_kernels,
-    filter_texts,
-)
+from psenet.utils.metrics import build_metrics
 
 flags.DEFINE_string("model_dir", config.MODEL_DIR, "The model directory")
 flags.DEFINE_string(
@@ -75,6 +68,20 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_integer(
     "n_epochs", config.N_EPOCHS, "The number of training epochs"
+)
+flags.DEFINE_integer(
+    "n_eval_steps", config.N_EVAL_STEPS, "The number of evaluation steps"
+)
+flags.DEFINE_integer(
+    "eval_start_delay_secs",
+    config.EVAL_START_DELAY_SECS,
+    "Start evaluating after waiting for this many seconds",
+)
+flags.DEFINE_integer(
+    "eval_throttle_secs",
+    config.EVAL_THROTTLE_SECS,
+    "Do not re-evaluate unless the last evaluation "
+    + "was started at least this many seconds ago",
 )
 FLAGS = flags.FLAGS
 
@@ -160,92 +167,16 @@ def build_model(params):
         return tf.concat([kernels, ones], axis=-1)
 
     predictions = tf.keras.layers.Lambda(
-        augment, output_shape=[None, None, params.n_kernels + 1]
+        augment,
+        output_shape=[None, None, params.n_kernels + 1],
+        name=config.KERNELS,
     )([images, kernels])
     psenet = tf.keras.Model(inputs={config.IMAGE: images}, outputs=predictions)
 
-    text_metrics_label = "Texts"
-
-    def text_overall_accuracy():
-        def compute(labels, predictions):
-            return OverallAccuracy(text_metrics_label)(
-                *filter_texts(predictions, labels, FLAGS.n_kernels)
-            )
-
-        return compute
-
-    def text_mean_accuracy():
-        def compute(labels, predictions):
-            return MeanAccuracy(text_metrics_label)(
-                *filter_texts(predictions, labels, FLAGS.n_kernels)
-            )
-
-        return compute
-
-    def text_mean_iou():
-        def compute(labels, predictions):
-            return MeanIOU(text_metrics_label)(
-                *filter_texts(predictions, labels, FLAGS.n_kernels)
-            )
-
-        return compute
-
-    def text_fw_accuracy():
-        def compute(labels, predictions):
-            return FrequencyWeightedAccuracy(text_metrics_label)(
-                *filter_texts(predictions, labels, FLAGS.n_kernels)
-            )
-
-        return compute
-
-    kernel_metrics_label = "Kernels"
-
-    def kernel_overall_accuracy():
-        def compute(labels, predictions):
-            return OverallAccuracy(kernel_metrics_label)(
-                *filter_kernels(predictions, labels, FLAGS.n_kernels)
-            )
-
-        return compute
-
-    def kernel_mean_accuracy():
-        def compute(labels, predictions):
-            return MeanAccuracy(kernel_metrics_label)(
-                *filter_kernels(predictions, labels, FLAGS.n_kernels)
-            )
-
-        return compute
-
-    def kernel_mean_iou():
-        def compute(labels, predictions):
-            return MeanIOU(kernel_metrics_label)(
-                *filter_kernels(predictions, labels, FLAGS.n_kernels)
-            )
-
-        return compute
-
-    def kernel_fw_accuracy():
-        def compute(labels, predictions):
-            return FrequencyWeightedAccuracy(kernel_metrics_label)(
-                *filter_kernels(predictions, labels, FLAGS.n_kernels)
-            )
-
-        return compute
-
     psenet.compile(
-        optimizer=build_optimizer(params),
-        loss=psenet_loss(FLAGS.n_kernels),
-        metrics=[
-            text_overall_accuracy(),
-            text_mean_accuracy(),
-            text_mean_iou(),
-            text_fw_accuracy(),
-            kernel_overall_accuracy(),
-            kernel_mean_accuracy(),
-            kernel_mean_iou(),
-            kernel_fw_accuracy(),
-        ],
+        optimizer=build_optimizer(params), loss=psenet_loss(FLAGS.n_kernels)
     )
+
     return psenet
 
 
@@ -265,6 +196,10 @@ def build_estimator(run_config):
         keras_model=psenet, model_dir=FLAGS.model_dir, config=run_config
     )
 
+    estimator = tf.contrib.estimator.add_metrics(
+        estimator, build_metrics(FLAGS.n_kernels)
+    )
+
     exporter = build_exporter()
 
     train_spec = tf.estimator.TrainSpec(
@@ -278,7 +213,9 @@ def build_estimator(run_config):
             tf.estimator.ModeKeys.EVAL, FLAGS.eval_data_dir
         ),
         exporters=exporter,
-        start_delay_secs=500,
+        steps=FLAGS.n_eval_steps,
+        start_delay_secs=FLAGS.eval_start_delay_secs,
+        throttle_secs=FLAGS.eval_throttle_secs,
     )
 
     return estimator, train_spec, eval_spec
@@ -290,6 +227,7 @@ def train(argv):
             model_dir=FLAGS.model_dir,
             save_checkpoints_secs=config.SAVE_CHECKPOINTS_SECS,
             save_summary_steps=config.SAVE_SUMMARY_STEPS,
+            keep_checkpoint_every_n_hours=config.KEEP_CHECKPOINT_EVERY_N_HOURS,
         )
     )
     tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)

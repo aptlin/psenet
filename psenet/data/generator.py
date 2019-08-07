@@ -136,13 +136,14 @@ class Dataset:
                 tensors.append(gt_kernels[idx - 1])
             tensors = preprocess.random_flip(tensors)
             tensors = preprocess.random_rotate(tensors)
-            tensors = preprocess.background_random_crop(tensors, gt_text)
+            tensors = preprocess.random_background_crop(tensors, gt_text)
             image, gt_text, mask, gt_kernels = (
                 tensors[0],
                 tensors[1],
                 tensors[2],
                 tensors[3:],
             )
+
         gt_text = tf.cast(gt_text, tf.float32)
         gt_text = tf.sign(gt_text)
         gt_text = tf.cast(gt_text, tf.uint8)
