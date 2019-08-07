@@ -38,3 +38,5 @@ TEXT_LOSS_WEIGHT = 0.7
 TRAINING_DATA_DIR = "./dist/mlt/tfrecords/train"
 MASK = "mask"
 WIDTH = "width"
+MOMENTUM = 0.99
+

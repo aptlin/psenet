@@ -123,7 +123,7 @@ def build_exporter():
 
 
 def build_optimizer(params):
-    return tf.keras.optimizers.SGD(
+    return tf.keras.optimizers.Adam(
         learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
             params.learning_rate,
             decay_steps=params.decay_steps,
@@ -131,6 +131,15 @@ def build_optimizer(params):
             staircase=True,
         )
     )
+    # return tf.keras.optimizers.SGD(
+    #     learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
+    #         params.learning_rate,
+    #         decay_steps=params.decay_steps,
+    #         decay_rate=params.decay_rate,
+    #         staircase=True,
+    #     ),
+    #     momentum=config.MOMENTUM,
+    # )
 
 
 def build_model(params):

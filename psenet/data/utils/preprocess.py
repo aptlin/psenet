@@ -167,7 +167,6 @@ def scale(image, resize_length=config.RESIZE_LENGTH):
 
 
 def random_scale(image, prob=0.5, resize_length=config.RESIZE_LENGTH):
-    image = scale(image, resize_length)
     random_value = tf.random.uniform([])
     random_scaling_factor = tf.random.uniform(
         [], minval=0.5, maxval=3.0, dtype=tf.float32

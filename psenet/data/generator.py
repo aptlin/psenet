@@ -117,8 +117,7 @@ class Dataset:
 
         if self.should_augment:
             image = preprocess.random_scale(image, self.resize_length)
-        else:
-            image = preprocess.scale(image, self.resize_length)
+        image = preprocess.scale(image, self.resize_length)
         image_shape = tf.shape(image)
         height = image_shape[0]
         width = image_shape[1]
