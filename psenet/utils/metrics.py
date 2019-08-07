@@ -5,10 +5,10 @@ from psenet import config
 
 
 def filter_texts(labels, predictions, n_kernels):
-    gt_texts = predictions[:, :, :, 0]
+    gt_texts = labels[:, :, :, 0]
     masks = labels[:, :, :, n_kernels]
-    texts = labels[:, :, :, 0]
-    texts = tf.math.sigmoid(texts)
+    texts = predictions[:, :, :, 0]
+    texts = tf.math.sigmoid(texts) * masks
     texts = tf.where(
         tf.greater(texts, 0.5), tf.ones_like(texts), tf.zeros_like(texts)
     )
@@ -41,19 +41,18 @@ class RunningScore:
         self.name = name
         self.metric_type = metric_type
         self.n_classes = n_classes
-        self.confusion_matrix = tf.zeros(
-            [n_classes, n_classes],
-            dtype=tf.float32,
-            name=f"{self.name}/{self.metric_type}/confusion-matrix",
-        )
-        # self.confusion_matrix = tf.keras.backend.variable(
-        #     tf.zeros(
-        #         [n_classes, n_classes],
-        #         dtype=tf.float32,
-        #         name=f"{self.name}/{self.metric_type}/confusion-matrix",
-        #     ),
-        #     trainable=False,
+        # self.confusion_matrix = tf.zeros(
+        #     [n_classes, n_classes],
+        #     dtype=tf.float32,
+        #     name=f"{self.name}/{self.metric_type}/confusion-matrix",
         # )
+        self.confusion_matrix = tf.keras.backend.variable(
+            tf.zeros(
+                [n_classes, n_classes],
+                dtype=tf.float32,
+                name=f"{self.name}/{self.metric_type}/confusion-matrix",
+            )
+        )
 
     def _compute_confusion(self, ground_truth, prediction):
         mask = tf.logical_and(
@@ -91,8 +90,11 @@ class RunningScore:
         increment = tf.math.reduce_sum(
             tf.map_fn(get_increment, indices, dtype=tf.float32)
         )
-        self.confusion_matrix += increment
+        # self.confusion_matrix += increment
         # self.confusion_matrix.assign(self.confusion_matrix + increment)
+        self.confusion_matrix.assign_add(
+            tf.fill(tf.shape(self.confusion_matrix), increment)
+        )
 
     @abstractmethod
     def __call__(self, ground_truth, prediction):
@@ -108,7 +110,7 @@ class OverallAccuracy(RunningScore):
     def __call__(self, ground_truth, prediction):
         self._update(ground_truth, prediction)
         epsilon = config.EPSILON
-        diagonal = tf.matrix_diag_part(self.confusion_matrix)
+        diagonal = tf.linalg.diag_part(self.confusion_matrix)
         total_sum = tf.math.reduce_sum(self.confusion_matrix)
         overall_accuracy = tf.math.reduce_sum(diagonal) / (total_sum + epsilon)
         return overall_accuracy
@@ -121,7 +123,7 @@ class MeanAccuracy(RunningScore):
     def __call__(self, ground_truth, prediction):
         self._update(ground_truth, prediction)
         epsilon = config.EPSILON
-        diagonal = tf.matrix_diag_part(self.confusion_matrix)
+        diagonal = tf.linalg.diag_part(self.confusion_matrix)
         columns = tf.math.reduce_sum(self.confusion_matrix, axis=1)
         mean_accuracy = tf.math.reduce_mean(diagonal / (columns + epsilon))
         return mean_accuracy
@@ -136,7 +138,7 @@ class MeanIOU(RunningScore):
     def __call__(self, ground_truth, prediction):
         self._update(ground_truth, prediction)
         epsilon = config.EPSILON
-        diagonal = tf.matrix_diag_part(self.confusion_matrix)
+        diagonal = tf.linalg.diag_part(self.confusion_matrix)
         columns = tf.math.reduce_sum(self.confusion_matrix, axis=1)
         rows = tf.math.reduce_sum(self.confusion_matrix, axis=0)
         iou = diagonal / (columns + rows - diagonal + epsilon)
@@ -153,7 +155,7 @@ class FrequencyWeightedAccuracy(RunningScore):
     def __call__(self, ground_truth, prediction):
         self._update(ground_truth, prediction)
         epsilon = config.EPSILON
-        diagonal = tf.matrix_diag_part(self.confusion_matrix)
+        diagonal = tf.linalg.diag_part(self.confusion_matrix)
         columns = tf.math.reduce_sum(self.confusion_matrix, axis=1)
         rows = tf.math.reduce_sum(self.confusion_matrix, axis=0)
         total_sum = tf.math.reduce_sum(self.confusion_matrix)

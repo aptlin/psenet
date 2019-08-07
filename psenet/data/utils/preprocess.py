@@ -123,6 +123,20 @@ def background_random_crop(
     return output
 
 
+def adjust_scaling_factor(side, scaling_factor):
+    rounded_side = tf.round(side * scaling_factor)
+    is_div_by_32 = tf.equal(tf.math.mod(rounded_side, 32), 0.0)
+    output = (
+        tf.cond(
+            is_div_by_32,
+            lambda: rounded_side,
+            lambda: (tf.floor(rounded_side / 32.0) + 1.0) * 32.0,
+        )
+        / side
+    )
+    return output
+
+
 def scale(image, resize_length=config.RESIZE_LENGTH):
     image_shape = tf.shape(image)
     resize_length = tf.cast(resize_length, tf.float32)
@@ -133,27 +147,14 @@ def scale(image, resize_length=config.RESIZE_LENGTH):
     max_side = tf.math.maximum(height, width)
 
     should_scale = tf.greater(max_side, resize_length)
-    ratio = tf.cond(
+    scaling_factor = tf.cond(
         should_scale,
         lambda: tf.math.divide(resize_length, max_side),
         lambda: 1.0,
     )
 
-    def get_scaling_factor(side):
-        rounded_side = tf.round(side * ratio)
-        is_div_by_32 = tf.equal(tf.math.mod(rounded_side, 32), 0.0)
-        output = (
-            tf.cond(
-                is_div_by_32,
-                lambda: rounded_side,
-                lambda: (tf.floor(rounded_side / 32.0) + 1.0) * 32.0,
-            )
-            / side
-        )
-        return output
-
-    x_scale = get_scaling_factor(width)
-    y_scale = get_scaling_factor(height)
+    x_scale = adjust_scaling_factor(width, scaling_factor)
+    y_scale = adjust_scaling_factor(height, scaling_factor)
     output = tf.image.resize(
         image,
         [
@@ -168,7 +169,7 @@ def scale(image, resize_length=config.RESIZE_LENGTH):
 def random_scale(image, prob=0.5, resize_length=config.RESIZE_LENGTH):
     image = scale(image, resize_length)
     random_value = tf.random.uniform([])
-    random_scale_factor = tf.random.uniform(
+    random_scaling_factor = tf.random.uniform(
         [], minval=0.5, maxval=3.0, dtype=tf.float32
     )
     image_shape = tf.shape(image)
@@ -177,21 +178,25 @@ def random_scale(image, prob=0.5, resize_length=config.RESIZE_LENGTH):
     min_side = tf.math.minimum(width, height)
     max_side = tf.math.maximum(width, height)
     should_limit_scale = tf.less_equal(
-        min_side * random_scale_factor, config.MIN_SIDE
+        min_side * random_scaling_factor, config.MIN_SIDE
     )
-    random_scale_factor = tf.cond(
+    random_scaling_factor = tf.cond(
         should_limit_scale,
-        lambda: (max_side + 32.0) / config.MIN_SIDE,
-        lambda: random_scale_factor,
+        lambda: (max_side + 10.0) / config.MIN_SIDE,
+        lambda: random_scaling_factor,
     )
     should_resize = tf.less_equal(random_value, prob)
+    height_scaling_factor = adjust_scaling_factor(
+        height, random_scaling_factor
+    )
+    width_scaling_factor = adjust_scaling_factor(width, random_scaling_factor)
     output = tf.cond(
         should_resize,
         lambda: tf.image.resize(
             image,
             [
-                tf.cast(tf.round(random_scale_factor * height), tf.int64),
-                tf.cast(tf.round(random_scale_factor * width), tf.int64),
+                tf.cast(tf.round(height_scaling_factor * height), tf.int64),
+                tf.cast(tf.round(width_scaling_factor * width), tf.int64),
             ],
             method=tf.image.ResizeMethod.NEAREST_NEIGHBOR,
         ),

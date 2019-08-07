@@ -81,7 +81,7 @@ FLAGS = flags.FLAGS
 
 def build_dataset(mode, dataset_dir):
     def input_fn():
-        # is_training = mode == tf.estimator.ModeKeys.TRAIN
+        is_training = mode == tf.estimator.ModeKeys.TRAIN
         dataset = Dataset(
             dataset_dir,
             FLAGS.batch_size,
@@ -92,8 +92,8 @@ def build_dataset(mode, dataset_dir):
             # should_shuffle=is_training,
             should_shuffle=False,
             should_repeat=True,
-            should_augment=False
-            # should_augment=is_training,
+            # should_augment=False,
+            should_augment=is_training,
         ).build()
         features, labels = dataset.make_one_shot_iterator().get_next()
         return features, labels
