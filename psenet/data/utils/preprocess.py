@@ -114,10 +114,18 @@ def background_random_crop(
 
     end_y = start_y + crop_size
     end_x = start_x + crop_size
+
     new_images = []
     for idx in range(len(images)):
         image = images[idx][start_y:end_y, start_x:end_x]
-        new_images.append(image)
+        image_shape = tf.shape(image)
+        image_height = tf.cast(image_shape[0], tf.float32)
+        image_width = tf.cast(image_shape[1], tf.float32)
+        image_height = tf.math.floor(image_height / 32.0) * 32
+        image_height = tf.cast(image_height, tf.int64)
+        image_width = tf.math.floor(image_width / 32.0) * 32
+        image_width = tf.cast(image_width, tf.int64)
+        new_images.append(image[:image_height, :image_width])
 
     output = tf.cond(should_not_crop, lambda: images, lambda: new_images)
     return output
@@ -140,6 +148,7 @@ def adjust_scaling_factor(side, scaling_factor):
 def scale(image, resize_length=config.RESIZE_LENGTH):
     image_shape = tf.shape(image)
     resize_length = tf.cast(resize_length, tf.float32)
+
     height = tf.cast(image_shape[0], tf.float32)
     width = tf.cast(image_shape[1], tf.float32)
     height = tf.math.maximum(height, config.MIN_SIDE)

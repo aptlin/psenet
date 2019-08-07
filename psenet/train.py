@@ -148,17 +148,20 @@ def build_model(params):
     )
     kernels = feature_pyramid_network(params)(images)
 
-    def augment(kernels):
-        kernels_shape = tf.keras.backend.shape(kernels)
-        batch_size = kernels_shape[0]
-        height = kernels_shape[1]
-        width = kernels_shape[2]
+    def augment(tensors):
+        images = tensors[0]
+        kernels = tensors[1]
+        images_shape = tf.shape(images)
+        batch_size = images_shape[0]
+        height = images_shape[1]
+        width = images_shape[2]
         ones = tf.ones([batch_size, height, width, 1])
+        kernels = tf.image.pad_to_bounding_box(kernels, 0, 0, height, width)
         return tf.concat([kernels, ones], axis=-1)
 
     predictions = tf.keras.layers.Lambda(
         augment, output_shape=[None, None, params.n_kernels + 1]
-    )(kernels)
+    )([images, kernels])
     psenet = tf.keras.Model(inputs={config.IMAGE: images}, outputs=predictions)
 
     text_metrics_label = "Texts"

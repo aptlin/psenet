@@ -15,25 +15,13 @@ def dice_loss(labels, predictions, masks):
     labels *= masks
     predictions *= masks
 
-    print_labels = tf.print("masked labels nonzero:", tf.count_nonzero(labels))
-    print_predictions = tf.print(
-        "masked predictions nonzero:", tf.count_nonzero(predictions)
-    )
-
     a = tf.math.reduce_sum(predictions * labels, axis=1)
     b = tf.math.reduce_sum(predictions * predictions, axis=1) + config.EPSILON
     c = tf.math.reduce_sum(labels * labels, axis=1) + config.EPSILON
 
-    print_a = tf.print("a:", a)
-    print_b = tf.print("b:", b)
-    print_c = tf.print("c:", c)
-
-    with tf.control_dependencies(
-        [print_labels, print_predictions, print_a, print_b, print_c]
-    ):
-        d = (2 * a) / (b + c)
-        loss = tf.math.reduce_mean(d)
-        return 1.0 - loss
+    d = (2 * a) / (b + c)
+    loss = tf.math.reduce_mean(d)
+    return 1.0 - loss
 
 
 def ohem_single(labels, predictions, masks):
