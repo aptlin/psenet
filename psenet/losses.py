@@ -1,4 +1,4 @@
-import config
+import psenet.config as config
 import tensorflow as tf
 
 

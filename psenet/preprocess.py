@@ -4,7 +4,7 @@ import Polygon as plg
 import pyclipper
 import tensorflow as tf
 
-import config
+import psenet.config as config
 
 
 def random_flip(images, prob=0.5, dim=1):

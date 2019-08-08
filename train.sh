@@ -1,8 +1,10 @@
-JOB_ID=psenet_rc3
+JOB_ID=psenet_rc7
 gcloud ai-platform jobs submit training $JOB_ID \
     --job-dir gs://gsoc-tfjs/weights/psenet/custom \
     --module-name psenet.train \
     --package-path psenet/ \
+    --packages segmentation_models/dist/segmentation_models-1.0.0b1.tar.gz \
+    --python-version 3.5 \
     --runtime-version 1.14 \
     --region us-central1 \
     --scale-tier STANDARD_1 \

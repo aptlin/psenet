@@ -1,5 +1,5 @@
 import tensorflow as tf
-import config
+import psenet.config as config
 
 
 def filter_texts(labels, predictions, kernel_num):

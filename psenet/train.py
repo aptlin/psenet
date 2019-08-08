@@ -1,8 +1,9 @@
-import os
-import tensorflow as tf
 import argparse
+import os
 
-import config
+import tensorflow as tf
+
+import psenet.config as config
 import psenet.data as data
 import psenet.layers as layers
 import psenet.losses as losses

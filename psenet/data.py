@@ -1,7 +1,9 @@
+import os
+
 import cv2
 import numpy as np
-import os
 import tensorflow as tf
+
 import psenet.config as config
 import psenet.preprocess as preprocess
 

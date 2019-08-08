@@ -1,0 +1,4 @@
+[submodule "segmentation_models"]
+	path = segmentation_models
+	url = git://github.com/qubvel/segmentation_models
+	branch = feature/tf.keras
