@@ -1,5 +1,5 @@
 import tensorflow as tf
-from absl import app, flags
+import argparse
 
 from psenet import config
 from psenet.data.generator import Dataset
@@ -7,95 +7,21 @@ from psenet.utils.layers import feature_pyramid_network
 from psenet.utils.losses import psenet_loss
 from psenet.utils.metrics import build_metrics
 
-flags.DEFINE_string("model_dir", config.MODEL_DIR, "The model directory")
-flags.DEFINE_string(
-    "training_data_dir",
-    config.TRAINING_DATA_DIR,
-    "The directory with images and labels for training",
-)
-flags.DEFINE_string(
-    "eval_data_dir",
-    config.EVAL_DATA_DIR,
-    "The directory with images and labels for evaluation",
-)
-flags.DEFINE_integer(
-    "n_kernels", config.KERNEL_NUM, "The number of output tensors"
-)
-flags.DEFINE_string(
-    "backbone_name",
-    config.BACKBONE_NAME,
-    """The name of the FPN backbone. Must be one of the following:
-    - 'inceptionresnetv2',
-    - 'inceptionv3',
-    - 'resnext50',
-    - 'resnext101',
-    - 'mobilenet',
-    - 'mobilenetv2',
-    - 'efficientnetb0',
-    - 'efficientnetb1',
-    - 'efficientnetb2',
-    - 'efficientnetb3',
-    - 'efficientnetb4',
-    - 'efficientnetb5'
-    """,
-)
-flags.DEFINE_float(
-    "learning_rate", config.LEARNING_RATE, "The initial learning rate"
-)
-flags.DEFINE_float(
-    "decay_rate",
-    config.LEARNING_RATE_DECAY_FACTOR,
-    "The learning rate decay factor",
-)
-flags.DEFINE_integer(
-    "decay_steps",
-    config.LEARNING_RATE_DECAY_STEPS,
-    "The number of steps before the learning rate decays",
-)
-flags.DEFINE_integer(
-    "resize_length",
-    config.RESIZE_LENGTH,
-    "The maximum side length of the resized input images",
-)
-flags.DEFINE_integer(
-    "n_readers", config.NUM_READERS, "The number of parallel readers"
-)
-flags.DEFINE_float("min_scale", config.MIN_SCALE, "Minimum scale of kernels")
-flags.DEFINE_integer(
-    "batch_size",
-    config.BATCH_SIZE,
-    "The batch size for training and evaluation",
-)
-flags.DEFINE_integer(
-    "n_epochs", config.N_EPOCHS, "The number of training epochs"
-)
-flags.DEFINE_integer(
-    "n_eval_steps", config.N_EVAL_STEPS, "The number of evaluation steps"
-)
-flags.DEFINE_integer(
-    "eval_start_delay_secs",
-    config.EVAL_START_DELAY_SECS,
-    "Start evaluating after waiting for this many seconds",
-)
-flags.DEFINE_integer(
-    "eval_throttle_secs",
-    config.EVAL_THROTTLE_SECS,
-    "Do not re-evaluate unless the last evaluation "
-    + "was started at least this many seconds ago",
-)
-FLAGS = flags.FLAGS
 
-
-def build_dataset(mode, dataset_dir):
+def build_dataset(mode, FLAGS):
     def input_fn():
         is_training = mode == tf.estimator.ModeKeys.TRAIN
+
+        dataset_dir = (
+            FLAGS.training_data_dir if is_training else FLAGS.eval_data_dir
+        )
         dataset = Dataset(
             dataset_dir,
             FLAGS.batch_size,
             resize_length=FLAGS.resize_length,
             min_scale=FLAGS.min_scale,
-            kernel_num=FLAGS.n_kernels,
-            num_readers=FLAGS.n_readers,
+            kernel_num=FLAGS.kernel_num,
+            num_readers=FLAGS.readers_num,
             # should_shuffle=is_training,
             should_shuffle=False,
             should_repeat=True,
@@ -111,12 +37,12 @@ def build_dataset(mode, dataset_dir):
 def build_exporter():
     def serving_input_fn():
         features = {
-            config.IMAGE: tf.placeholder(
+            config.IMAGE: tf.compat.v1.placeholder(
                 dtype=tf.float32, shape=[None, None, None, 3]
             )
         }
         receiver_tensors = {
-            config.IMAGE: tf.placeholder(
+            config.IMAGE: tf.compat.v1.placeholder(
                 dtype=tf.float32, shape=[None, None, None, 3]
             )
         }
@@ -149,7 +75,7 @@ def build_optimizer(params):
     # )
 
 
-def build_model(params):
+def build_model(params, FLAGS):
     images = tf.keras.Input(
         shape=[None, None, 3], name=config.IMAGE, dtype=tf.float32
     )
@@ -168,52 +94,48 @@ def build_model(params):
 
     predictions = tf.keras.layers.Lambda(
         augment,
-        output_shape=[None, None, params.n_kernels + 1],
+        output_shape=[None, None, params.kernel_num + 1],
         name=config.KERNELS,
     )([images, kernels])
     psenet = tf.keras.Model(inputs={config.IMAGE: images}, outputs=predictions)
 
     psenet.compile(
-        optimizer=build_optimizer(params), loss=psenet_loss(FLAGS.n_kernels)
+        optimizer=build_optimizer(params), loss=psenet_loss(FLAGS.kernel_num)
     )
 
     return psenet
 
 
-def build_estimator(run_config):
+def build_estimator(run_config, FLAGS):
     tf.compat.v1.summary.FileWriterCache.clear()
 
     params = tf.contrib.training.HParams(
-        n_kernels=FLAGS.n_kernels,
+        kernel_num=FLAGS.kernel_num,
         backbone_name=FLAGS.backbone_name,
         decay_rate=FLAGS.decay_rate,
         decay_steps=FLAGS.decay_steps,
         learning_rate=FLAGS.learning_rate,
     )
 
-    psenet = build_model(params)
+    psenet = build_model(params, FLAGS)
     estimator = tf.keras.estimator.model_to_estimator(
-        keras_model=psenet, model_dir=FLAGS.model_dir, config=run_config
+        keras_model=psenet, model_dir=FLAGS.job_dir, config=run_config
     )
 
     estimator = tf.contrib.estimator.add_metrics(
-        estimator, build_metrics(FLAGS.n_kernels)
+        estimator, build_metrics(FLAGS.kernel_num)
     )
 
     exporter = build_exporter()
 
     train_spec = tf.estimator.TrainSpec(
-        input_fn=build_dataset(
-            tf.estimator.ModeKeys.TRAIN, FLAGS.training_data_dir
-        ),
-        max_steps=FLAGS.n_epochs,
+        input_fn=build_dataset(tf.estimator.ModeKeys.TRAIN, FLAGS),
+        max_steps=FLAGS.train_steps,
     )
     eval_spec = tf.estimator.EvalSpec(
-        input_fn=build_dataset(
-            tf.estimator.ModeKeys.EVAL, FLAGS.eval_data_dir
-        ),
+        input_fn=build_dataset(tf.estimator.ModeKeys.EVAL, FLAGS),
         exporters=exporter,
-        steps=FLAGS.n_eval_steps,
+        steps=FLAGS.eval_steps,
         start_delay_secs=FLAGS.eval_start_delay_secs,
         throttle_secs=FLAGS.eval_throttle_secs,
     )
@@ -221,17 +143,148 @@ def build_estimator(run_config):
     return estimator, train_spec, eval_spec
 
 
-def train(argv):
+def train(FLAGS):
     estimator, train_spec, eval_spec = build_estimator(
         tf.estimator.RunConfig(
-            model_dir=FLAGS.model_dir,
-            save_checkpoints_secs=config.SAVE_CHECKPOINTS_SECS,
-            save_summary_steps=config.SAVE_SUMMARY_STEPS,
-            keep_checkpoint_every_n_hours=config.KEEP_CHECKPOINT_EVERY_N_HOURS,
-        )
+            model_dir=FLAGS.job_dir,
+            save_checkpoints_secs=FLAGS.save_checkpoints_secs,
+            save_summary_steps=FLAGS.save_summary_steps,
+            keep_checkpoint_every_n_hours=FLAGS.keep_checkpoint_every_n_hours,
+        ),
+        FLAGS,
     )
     tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
 
 
 if __name__ == "__main__":
-    app.run(train)
+    PARSER = argparse.ArgumentParser()
+    PARSER.add_argument(
+        "--training-data-dir",
+        help="The directory with `images/` and `labels/` for training",
+        default=config.TRAINING_DATA_DIR,
+        type=str,
+    )
+    PARSER.add_argument(
+        "--eval-data-dir",
+        help="The directory with `images/` and `labels/` for evaluation",
+        default=config.EVAL_DATA_DIR,
+        type=str,
+    )
+    PARSER.add_argument(
+        "--job-dir",
+        help="The model directory",
+        default=config.MODEL_DIR,
+        type=str,
+    )
+    PARSER.add_argument(
+        "--kernel-num",
+        help="The number of output kernels from FPN",
+        default=config.KERNEL_NUM,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--backbone-name",
+        help="""The name of the FPN backbone. Must be one of the following:
+                - 'inceptionresnetv2',
+                - 'inceptionv3',
+                - 'resnext50',
+                - 'resnext101',
+                - 'mobilenet',
+                - 'mobilenetv2',
+                - 'efficientnetb0',
+                - 'efficientnetb1',
+                - 'efficientnetb2',
+                - 'efficientnetb3',
+                - 'efficientnetb4',
+                - 'efficientnetb5'
+    """,
+        default=config.BACKBONE_NAME,
+        type=str,
+    )
+    PARSER.add_argument(
+        "--learning-rate",
+        help="The initial learning rate",
+        default=config.LEARNING_RATE,
+        type=float,
+    )
+    PARSER.add_argument(
+        "--decay-rate",
+        help="The learning rate decay factor",
+        default=config.LEARNING_RATE_DECAY_FACTOR,
+        type=float,
+    )
+    PARSER.add_argument(
+        "--decay-steps",
+        help="The number of steps before the learning rate decays",
+        default=config.LEARNING_RATE_DECAY_STEPS,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--resize-length",
+        help="The maximum side length of the resized input images",
+        default=config.RESIZE_LENGTH,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--readers-num",
+        help="The number of parallel readers",
+        default=config.NUM_READERS,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--min-scale",
+        help="The minimum kernel scale for pre-processing",
+        default=config.LEARNING_RATE_DECAY_FACTOR,
+        type=float,
+    )
+    PARSER.add_argument(
+        "--batch-size",
+        help="The batch size for training and evaluation",
+        default=config.BATCH_SIZE,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--train-steps",
+        help="The number of training epochs",
+        default=config.N_EPOCHS,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--eval-steps",
+        help="The number of evaluation_steps epochs",
+        default=config.N_EVAL_STEPS,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--save-checkpoints-secs",
+        help="Save checkpoints every this many seconds",
+        default=config.SAVE_CHECKPOINTS_SECS,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--save-summary-steps",
+        help="Save summaries every this many steps",
+        default=config.SAVE_SUMMARY_STEPS,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--keep-checkpoint-every-n-hours",
+        help="Number of hours between each checkpoint to be saved",
+        default=config.KEEP_CHECKPOINT_EVERY_N_HOURS,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--eval-start-delay-secs",
+        help="Start evaluating after waiting for this many seconds",
+        default=config.EVAL_START_DELAY_SECS,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--eval-throttle-secs",
+        help="Do not re-evaluate unless the last evaluation "
+        + "was started at least this many seconds ago",
+        default=config.EVAL_THROTTLE_SECS,
+        type=int,
+    )
+    FLAGS, _ = PARSER.parse_known_args()
+    train(FLAGS)

@@ -96,15 +96,15 @@ def ohem_batch(labels, predictions, masks):
     return selected_masks
 
 
-def psenet_loss(n_kernels):
+def psenet_loss(kernel_num):
     def loss(gt_labels, pred_labels):
         texts = pred_labels[:, :, :, 0]
         text_scores = tf.math.sigmoid(texts)
-        kernels = pred_labels[:, :, :, 1:n_kernels]
+        kernels = pred_labels[:, :, :, 1:kernel_num]
 
         gt_texts = gt_labels[:, :, :, 0]
-        gt_kernels = gt_labels[:, :, :, 1:n_kernels]
-        masks = gt_labels[:, :, :, n_kernels]
+        gt_kernels = gt_labels[:, :, :, 1:kernel_num]
+        masks = gt_labels[:, :, :, kernel_num]
 
         selected_masks = ohem_batch(gt_texts, texts, masks)
 

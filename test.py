@@ -18,10 +18,10 @@ with tf.Session() as sess:
 # from segmentation_models import FPN
 
 
-# def build_fpn(backbone_name: str, n_kernels=7):
+# def build_fpn(backbone_name: str, kernel_num=7):
 #     return FPN(
 #         backbone_name=backbone_name,
-#         classes=n_kernels,
+#         classes=kernel_num,
 #         encoder_weights="imagenet",
 #         activation="sigmoid",
 #         pyramid_block_filters=256,
