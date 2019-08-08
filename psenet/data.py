@@ -2,8 +2,8 @@ import cv2
 import numpy as np
 import os
 import tensorflow as tf
-from psenet import config
-from psenet.data.utils import preprocess
+import psenet.config as config
+import psenet.preprocess as preprocess
 
 
 class Dataset:
@@ -136,7 +136,7 @@ class Dataset:
                 tensors.append(gt_kernels[idx - 1])
             tensors = preprocess.random_flip(tensors)
             tensors = preprocess.random_rotate(tensors)
-            tensors = preprocess.random_background_crop(tensors, gt_text)
+            tensors = preprocess.random_background_crop(tensors)
             image, gt_text, mask, gt_kernels = (
                 tensors[0],
                 tensors[1],
@@ -181,7 +181,7 @@ class Dataset:
             dataset = dataset.shuffle(buffer_size=config.SHUFFLE_BUFFER_SIZE)
 
         if self.should_repeat:
-            dataset = dataset.repeat()  # Repeat forever for training.
+            dataset = dataset.repeat()
         else:
             dataset = dataset.repeat(1)
         dataset = dataset.padded_batch(

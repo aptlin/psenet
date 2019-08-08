@@ -1,11 +1,12 @@
+import os
 import tensorflow as tf
 import argparse
 
-from psenet import config
-from psenet.data.generator import Dataset
-from psenet.utils.layers import feature_pyramid_network
-from psenet.utils.losses import psenet_loss
-from psenet.utils.metrics import build_metrics
+import config
+import psenet.data as data
+import psenet.layers as layers
+import psenet.losses as losses
+import psenet.metrics as metrics
 
 
 def build_dataset(mode, FLAGS):
@@ -15,7 +16,7 @@ def build_dataset(mode, FLAGS):
         dataset_dir = (
             FLAGS.training_data_dir if is_training else FLAGS.eval_data_dir
         )
-        dataset = Dataset(
+        dataset = data.Dataset(
             dataset_dir,
             FLAGS.batch_size,
             resize_length=FLAGS.resize_length,
@@ -79,7 +80,7 @@ def build_model(params, FLAGS):
     images = tf.keras.Input(
         shape=[None, None, 3], name=config.IMAGE, dtype=tf.float32
     )
-    kernels = feature_pyramid_network(params)(images)
+    kernels = layers.feature_pyramid_network(params)(images)
 
     def augment(tensors):
         images = tensors[0]
@@ -100,7 +101,8 @@ def build_model(params, FLAGS):
     psenet = tf.keras.Model(inputs={config.IMAGE: images}, outputs=predictions)
 
     psenet.compile(
-        optimizer=build_optimizer(params), loss=psenet_loss(FLAGS.kernel_num)
+        optimizer=build_optimizer(params),
+        loss=losses.psenet_loss(FLAGS.kernel_num),
     )
 
     return psenet
@@ -123,7 +125,7 @@ def build_estimator(run_config, FLAGS):
     )
 
     estimator = tf.contrib.estimator.add_metrics(
-        estimator, build_metrics(FLAGS.kernel_num)
+        estimator, metrics.build_metrics(FLAGS.kernel_num)
     )
 
     exporter = build_exporter()
@@ -287,4 +289,6 @@ if __name__ == "__main__":
         type=int,
     )
     FLAGS, _ = PARSER.parse_known_args()
+    tf.logging.set_verbosity("DEBUG")
+    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
     train(FLAGS)

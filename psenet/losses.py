@@ -1,4 +1,4 @@
-from psenet import config
+import config
 import tensorflow as tf
 
 
@@ -98,28 +98,32 @@ def ohem_batch(labels, predictions, masks):
 
 def psenet_loss(kernel_num):
     def loss(gt_labels, pred_labels):
+        # compute text loss
         texts = pred_labels[:, :, :, 0]
-        text_scores = tf.math.sigmoid(texts)
-        kernels = pred_labels[:, :, :, 1:kernel_num]
-
         gt_texts = gt_labels[:, :, :, 0]
+
+        kernels = pred_labels[:, :, :, 1:kernel_num]
         gt_kernels = gt_labels[:, :, :, 1:kernel_num]
+
         masks = gt_labels[:, :, :, kernel_num]
 
         selected_masks = ohem_batch(gt_texts, texts, masks)
 
-        text_loss = dice_loss(gt_texts, text_scores, selected_masks)
+        text_loss = dice_loss(gt_texts, texts, selected_masks)
 
+        # compute kernel loss
         selected_masks = tf.logical_and(
-            tf.greater(text_scores, 0.5), tf.greater(masks, 0.5)
+            tf.greater(texts, 0.5), tf.greater(masks, 0.5)
         )
         selected_masks = tf.cast(selected_masks, tf.float32)
+
         indices = tf.range(tf.shape(gt_kernels)[3])
 
         def compute_kernel_loss(index):
-            kernel_score = tf.math.sigmoid(kernels[:, :, :, index])
             return dice_loss(
-                gt_kernels[:, :, :, index], kernel_score, selected_masks
+                gt_kernels[:, :, :, index],
+                kernels[:, :, :, index],
+                selected_masks,
             )
 
         kernels_loss = tf.math.reduce_mean(

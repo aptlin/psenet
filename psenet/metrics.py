@@ -1,35 +1,39 @@
 import tensorflow as tf
-from psenet import config
+import config
 
 
 def filter_texts(labels, predictions, kernel_num):
-    gt_texts = labels[:, :, :, 0]
     masks = labels[:, :, :, kernel_num]
-    texts = predictions[:, :, :, 0]
-    texts = tf.math.sigmoid(texts) * masks
-    texts = tf.where(
-        tf.greater(texts, 0.5), tf.ones_like(texts), tf.zeros_like(texts)
+
+    text = predictions[:, :, :, 0] * masks
+    text = tf.where(
+        tf.greater(text, 0.5), tf.ones_like(text), tf.zeros_like(text)
     )
-    gt_text = gt_texts * masks
-    return gt_text, texts
+
+    gt_text = labels[:, :, :, 0] * masks
+
+    return gt_text, text
 
 
 def filter_kernels(labels, predictions, kernel_num):
-    gt_texts = labels[:, :, :, 0]
-    gt_kernels = labels[:, :, :, 1:kernel_num]
     masks = labels[:, :, :, kernel_num]
-    mask = gt_texts * masks
 
-    kernel = predictions[:, :, :, -1]
-    kernel = tf.math.sigmoid(kernel)
+    gt_text = labels[:, :, :, 0] * masks
+
+    gt_kernels = labels[:, :, :, 1:kernel_num]
+    kernels = predictions[:, :, :, 1:kernel_num]
+
+    kernel = kernels[:, :, :, -1]
     kernel = tf.where(
         tf.greater(kernel, 0.5), tf.ones_like(kernel), tf.zeros_like(kernel)
     )
-    kernel *= mask
+
+    kernel *= gt_text
     kernel = tf.cast(kernel, tf.float32)
 
     gt_kernel = gt_kernels[:, :, :, -1]
-    gt_kernel *= mask
+    gt_kernel *= gt_text
+
     return gt_kernel, kernel
 
 
@@ -41,7 +45,7 @@ def confusion_matrix(y_true, y_pred, n_classes):
         masked_gt = tf.boolean_mask(ground_truth, mask)
         masked_gt = tf.cast(masked_gt, tf.int32)
         masked_pred = tf.boolean_mask(prediction, mask)
-        masked_pred = tf.cast(masked_gt, tf.int32)
+        masked_pred = tf.cast(masked_pred, tf.int32)
         confusion = tf.reshape(
             tf.math.bincount(
                 masked_gt * n_classes + masked_pred, minlength=n_classes ** 2
@@ -53,16 +57,14 @@ def confusion_matrix(y_true, y_pred, n_classes):
 
     def get_increment(index):
         ground_truth_increment = y_true[index]
-        ground_truth_increment = tf.reshape(ground_truth_increment, [-1])
         prediction_increment = y_pred[index]
-        prediction_increment = tf.reshape(prediction_increment, [-1])
         return _compute_confusion(ground_truth_increment, prediction_increment)
 
-    n_labels = tf.shape(y_true)[0]
-    n_labels = tf.cast(n_labels, tf.int64)
-    indices = tf.range(n_labels)
+    batch_size = tf.shape(y_true)[0]
+    batch_size = tf.cast(batch_size, tf.int64)
+    indices = tf.range(batch_size)
 
-    matrix = tf.math.reduce_sum(
+    matrix = tf.math.reduce_mean(
         tf.map_fn(get_increment, indices, dtype=tf.float32), axis=0
     )
 
@@ -143,17 +145,12 @@ def build_metrics(
                 matrix, name=confusion_label
             )
             computed_metrics[confusion_label] = (mean_confusion, upd_confusion)
-            print_confusion = tf.print("before upd:", matrix)
-            print_mean_confusion = tf.print("after upd:", mean_confusion)
-            with tf.control_dependencies(
-                [print_confusion, print_mean_confusion]
-            ):
-                for metric_type, metric in confusion_matrix_metrics.items():
-                    val = metric(mean_confusion)
-                    label = f"{name}/{metric_type}"
-                    computed_metrics[label] = tf.compat.v1.metrics.mean(
-                        val, name=label
-                    )
+            for metric_type, metric in confusion_matrix_metrics.items():
+                val = metric(mean_confusion)
+                label = f"{name}/{metric_type}"
+                computed_metrics[label] = tf.compat.v1.metrics.mean(
+                    val, name=label
+                )
         return computed_metrics
 
     return compute

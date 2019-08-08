@@ -4,7 +4,7 @@ import Polygon as plg
 import pyclipper
 import tensorflow as tf
 
-from psenet import config
+import config
 
 
 def random_flip(images, prob=0.5, dim=1):
@@ -61,9 +61,10 @@ def random_clip(location, side_length, crop_size):
 
 
 def random_background_crop(
-    images, text, crop_size=config.CROP_SIZE, prob=3 / 8
+    images, reference_index=1, crop_size=config.CROP_SIZE, prob=3 / 8
 ):
     random_value = tf.random.uniform([])
+    text = images[reference_index]
     text_shape = tf.shape(text)
     height = text_shape[0]
     height = tf.cast(height, tf.int64)
@@ -129,21 +130,13 @@ def random_background_crop(
         start_x, start_y = tf.cond(
             should_search, search_for_the_background, get_default_coords
         )
-
         end_y = start_y + crop_size
         end_x = start_x + crop_size
 
         new_images = []
         for idx in range(len(images)):
             image = images[idx][start_y:end_y, start_x:end_x]
-            image_shape = tf.shape(image)
-            image_height = tf.cast(image_shape[0], tf.float32)
-            image_width = tf.cast(image_shape[1], tf.float32)
-            image_height = adjust_side(image_height)
-            image_height = tf.cast(image_height, tf.int64)
-            image_width = adjust_side(image_width)
-            image_width = tf.cast(image_width, tf.int64)
-            new_images.append(image[:image_height, :image_width])
+            new_images.append(image)
         return new_images
 
     output = tf.cond(should_not_crop, lambda: images, crop_background)
@@ -256,14 +249,3 @@ def shrink(bboxes, rate, max_shr=20):
         shrinked_bboxes.append(shrinked_bbox)
 
     return np.array(shrinked_bboxes)
-
-
-def normalize(image):
-    image = tf.cast(image, tf.float32)
-    image /= 255
-    offset = tf.constant(config.MEAN_RGB, shape=[1, 1, 3])
-    image -= offset
-
-    scale = tf.constant(config.STDDEV_RGB, shape=[1, 1, 3])
-    image /= scale
-    return image
