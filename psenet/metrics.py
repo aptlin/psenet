@@ -140,14 +140,14 @@ def build_metrics(
                 labels, predictions[config.KERNELS], kernel_num
             )
             matrix = confusion_matrix(y_true, y_pred, 2)
-            confusion_label = f"{name}/confusion-matrix"
+            confusion_label = "{}/confusion-matrix".format(name)
             mean_confusion, upd_confusion = tf.compat.v1.metrics.mean_tensor(
                 matrix, name=confusion_label
             )
             computed_metrics[confusion_label] = (mean_confusion, upd_confusion)
             for metric_type, metric in confusion_matrix_metrics.items():
                 val = metric(mean_confusion)
-                label = f"{name}/{metric_type}"
+                label = "{}/{}".format(name, metric_type)
                 computed_metrics[label] = tf.compat.v1.metrics.mean(
                     val, name=label
                 )

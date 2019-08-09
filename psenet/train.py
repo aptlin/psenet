@@ -5,9 +5,9 @@ import tensorflow as tf
 
 import psenet.config as config
 import psenet.data as data
-import psenet.layers as layers
 import psenet.losses as losses
 import psenet.metrics as metrics
+from psenet.layers.fpn import FPN
 
 
 def build_dataset(mode, FLAGS):
@@ -81,7 +81,19 @@ def build_model(params, FLAGS):
     images = tf.keras.Input(
         shape=[None, None, 3], name=config.IMAGE, dtype=tf.float32
     )
-    kernels = layers.feature_pyramid_network(params)(images)
+    kernels = FPN(
+        backbone_name=params.backbone_name,
+        input_shape=(None, None, 3),
+        classes=params.kernel_num,
+        activation="sigmoid",
+        weights=None,
+        encoder_weights="imagenet",
+        encoder_features="default",
+        pyramid_block_filters=256,
+        pyramid_use_batchnorm=True,
+        pyramid_aggregation="concat",
+        pyramid_dropout=None,
+    )(images)
 
     def augment(tensors):
         images = tensors[0]
@@ -290,6 +302,6 @@ if __name__ == "__main__":
         type=int,
     )
     FLAGS, _ = PARSER.parse_known_args()
-    tf.logging.set_verbosity("DEBUG")
+    tf.compat.v1.logging.set_verbosity("DEBUG")
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
     train(FLAGS)

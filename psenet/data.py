@@ -19,7 +19,7 @@ class Dataset:
         num_readers=config.NUM_READERS,
         should_shuffle=False,
         should_repeat=False,
-        should_augment=True,
+        should_augment=True
     ):
         self.dataset_dir = dataset_dir
         self.batch_size = batch_size

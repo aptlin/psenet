@@ -1,18 +1,17 @@
-JOB_ID=psenet_rc7
+JOB_ID=psenet_rc12
 gcloud ai-platform jobs submit training $JOB_ID \
     --job-dir gs://gsoc-tfjs/weights/psenet/custom \
     --module-name psenet.train \
     --package-path psenet/ \
-    --packages segmentation_models/dist/segmentation_models-1.0.0b1.tar.gz \
     --python-version 3.5 \
     --runtime-version 1.14 \
     --region us-central1 \
-    --scale-tier STANDARD_1 \
+    --scale-tier PREMIUM_1 \
     -- \
     --train-steps 600 \
     --eval-steps 100 \
     --kernels-num 7 \
-    --batch-size 32 \
+    --batch-size 16 \
     --training-data-dir gs://gsoc-tfjs/data/icdar/mlt/tfrecords/train \
     --eval-data-dir gs://gsoc-tfjs/data/icdar/mlt/tfrecords/eval \
     --backbone-name mobilenetv2 \

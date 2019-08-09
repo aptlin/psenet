@@ -9,5 +9,5 @@ def feature_pyramid_network(params):
         encoder_weights="imagenet",
         encoder_freeze=False,
         activation="sigmoid",
-        pyramid_block_filters=256,
+        pyramid_block_filters=256
     )
