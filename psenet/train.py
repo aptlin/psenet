@@ -122,11 +122,13 @@ def build_model(params):
 def build_estimator(FLAGS):
     if FLAGS.gpus_num == 1:
         strategy = tf.distribute.MirroredStrategy(
-            devices=["device:GPU:{}".format(i) for i in range(FLAGS.gpus_num)]
+            devices=["/device:GPU:{}".format(i) for i in range(FLAGS.gpus_num)]
         )
     elif FLAGS.gpus_num > 2:
         strategy = tf.distribute.MirroredStrategy(
-            devices=["device:GPU:{}".format(i) for i in range(FLAGS.gpus_num)],
+            devices=[
+                "/device:GPU:{}".format(i) for i in range(FLAGS.gpus_num)
+            ],
             cross_device_ops=tf.distribute.HierarchicalCopyAllReduce(),
         )
     else:
@@ -145,7 +147,15 @@ def build_estimator(FLAGS):
         keep_checkpoint_every_n_hours=FLAGS.keep_checkpoint_every_n_hours,
         train_distribute=strategy,
         session_config=tf.ConfigProto(
-            allow_soft_placement=True, log_device_placement=True
+            allow_soft_placement=True,
+            log_device_placement=True,
+            gpu_options=tf.GPUOptions(
+                allow_growth=True,
+                visible_device_list=",".join(
+                    [str(i) for i in range(FLAGS.gpus_num)]
+                ),
+            ),
+            device_count={"GPU": FLAGS.gpus_num, "CPU": FLAGS.cpus_num},
         ),
     )
 
@@ -266,8 +276,14 @@ if __name__ == "__main__":
     )
     PARSER.add_argument(
         "--gpus-num",
-        help="The number of gpus to use",
+        help="The number of GPUs to use",
         default=config.GPUS_NUM,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--cpus-num",
+        help="The number of CPUs to use",
+        default=config.CPUS_NUM,
         type=int,
     )
     PARSER.add_argument(

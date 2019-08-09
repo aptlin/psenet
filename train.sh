@@ -1,6 +1,6 @@
 #!/bin/bash
 
-JOB_ID=psenet_rc28
+JOB_ID=psenet_rc30
 gcloud ai-platform jobs submit training $JOB_ID \
     --job-dir gs://gsoc-tfjs/weights/psenet/custom/$JOB_ID \
     --module-name psenet.train \
@@ -25,4 +25,5 @@ gcloud ai-platform jobs submit training $JOB_ID \
     --save-checkpoints-secs 90 \
     --save-summary-steps 1 \
     --readers-num 32 \
-    --gpus-num 8
+    --gpus-num 8 \
+    --cpus-num 32
