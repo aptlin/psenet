@@ -5,7 +5,7 @@ REQUIRED_PACKAGES = ["opencv-python", "Polygon3", "pyclipper", "tensorflow"]
 
 setup(
     name="psenet",
-    version="0.1",
+    version="0.0.1",
     install_requires=REQUIRED_PACKAGES,
     packages=find_packages(),
     include_package_data=True,

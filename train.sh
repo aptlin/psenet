@@ -1,15 +1,18 @@
-JOB_ID=psenet_rc12
+#!/bin/bash
+
+JOB_ID=psenet_rc28
 gcloud ai-platform jobs submit training $JOB_ID \
-    --job-dir gs://gsoc-tfjs/weights/psenet/custom \
+    --job-dir gs://gsoc-tfjs/weights/psenet/custom/$JOB_ID \
     --module-name psenet.train \
     --package-path psenet/ \
     --python-version 3.5 \
     --runtime-version 1.14 \
     --region us-central1 \
-    --scale-tier PREMIUM_1 \
+    --scale-tier custom \
+    --master-machine-type complex_model_l_gpu \
     -- \
     --train-steps 600 \
-    --eval-steps 100 \
+    --eval-steps 10 \
     --kernels-num 7 \
     --batch-size 16 \
     --training-data-dir gs://gsoc-tfjs/data/icdar/mlt/tfrecords/train \
@@ -17,7 +20,9 @@ gcloud ai-platform jobs submit training $JOB_ID \
     --backbone-name mobilenetv2 \
     --learning-rate 0.0001 \
     --decay-steps 200 \
-    --eval-start-delay-secs 120 \
+    --eval-start-delay-secs 600 \
     --eval-throttle-secs 1800 \
-    --save_checkpoints_secs 600 \
-    --save_summary_steps 1
+    --save-checkpoints-secs 90 \
+    --save-summary-steps 1 \
+    --readers-num 32 \
+    --gpus-num 8

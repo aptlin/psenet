@@ -151,6 +151,7 @@ def build_metrics(
                 computed_metrics[label] = tf.compat.v1.metrics.mean(
                     val, name=label
                 )
+                tf.compat.v1.summary.scalar("label", val)
         return computed_metrics
 
     return compute

@@ -19,7 +19,7 @@ class Dataset:
         num_readers=config.NUM_READERS,
         should_shuffle=False,
         should_repeat=False,
-        should_augment=True
+        should_augment=True,
     ):
         self.dataset_dir = dataset_dir
         self.batch_size = batch_size
@@ -159,6 +159,19 @@ class Dataset:
         label = tf.cast(label, tf.float32)
         return ({config.IMAGE: image}, label)
 
+    def _guarantee_validity(self, inputs, label):
+        def is_valid(side):
+            return tf.logical_and(
+                tf.math.greater_equal(side, config.MIN_SIDE),
+                tf.math.equal(tf.math.floormod(side, config.MIN_SIDE), 0),
+            )
+
+        image = inputs[config.IMAGE]
+        image_shape = tf.shape(image)
+        height = image_shape[0]
+        width = image_shape[1]
+        return tf.logical_and(is_valid(height), is_valid(width))
+
     def _get_all_tfrecords(self):
         return tf.data.Dataset.list_files(
             os.path.join(self.dataset_dir, "*.tfrecord")
@@ -178,6 +191,7 @@ class Dataset:
         dataset = dataset.map(
             self._preprocess_example, num_parallel_calls=self.num_readers
         )
+        dataset = dataset.filter(self._guarantee_validity)
 
         if self.should_shuffle:
             dataset = dataset.shuffle(buffer_size=config.SHUFFLE_BUFFER_SIZE)

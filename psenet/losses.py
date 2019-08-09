@@ -111,6 +111,8 @@ def psenet_loss(kernel_num):
 
         text_loss = dice_loss(gt_texts, texts, selected_masks)
 
+        tf.compat.v1.summary.scalar("text_loss", text_loss)
+
         # compute kernel loss
         selected_masks = tf.logical_and(
             tf.greater(texts, 0.5), tf.greater(masks, 0.5)
@@ -130,10 +132,14 @@ def psenet_loss(kernel_num):
             tf.map_fn(compute_kernel_loss, indices, dtype=tf.float32)
         )
 
+        tf.compat.v1.summary.scalar("kernels_loss", kernels_loss)
+
         current_loss = (
             config.TEXT_LOSS_WEIGHT * text_loss
             + config.KERNELS_LOSS_WEIGHT * kernels_loss
         )
+
+        tf.compat.v1.summary.scalar("total_loss", current_loss)
 
         return current_loss
 

@@ -7,6 +7,7 @@ EPSILON = 1e-4
 EVAL_DATA_DIR = "./dist/mlt/tfrecords/eval"
 EVAL_START_DELAY_SECS = 10
 EVAL_THROTTLE_SECS = 120
+GRADIENT_CLIPPING_NORM = 9.0
 HEIGHT = "height"
 IMAGE = "image"
 IMAGE_NAME = "image_name"
@@ -43,3 +44,5 @@ TEXT_LOSS_WEIGHT = 0.7
 TEXT_METRICS = "text-metrics"
 TRAINING_DATA_DIR = "./dist/mlt/tfrecords/train"
 WIDTH = "width"
+GPUS_NUM = 0
+

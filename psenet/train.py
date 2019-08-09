@@ -24,14 +24,11 @@ def build_dataset(mode, FLAGS):
             min_scale=FLAGS.min_scale,
             kernel_num=FLAGS.kernel_num,
             num_readers=FLAGS.readers_num,
-            # should_shuffle=is_training,
-            should_shuffle=False,
+            should_shuffle=is_training,
             should_repeat=True,
-            # should_augment=False,
             should_augment=is_training,
         ).build()
-        features, labels = dataset.make_one_shot_iterator().get_next()
-        return features, labels
+        return dataset
 
     return input_fn
 
@@ -64,7 +61,8 @@ def build_optimizer(params):
             decay_steps=params.decay_steps,
             decay_rate=params.decay_rate,
             staircase=True,
-        )
+        ),
+        clipnorm=params.gradient_clipping_norm,
     )
     # return tf.keras.optimizers.SGD(
     #     learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
@@ -77,7 +75,7 @@ def build_optimizer(params):
     # )
 
 
-def build_model(params, FLAGS):
+def build_model(params):
     images = tf.keras.Input(
         shape=[None, None, 3], name=config.IMAGE, dtype=tf.float32
     )
@@ -115,14 +113,41 @@ def build_model(params, FLAGS):
 
     psenet.compile(
         optimizer=build_optimizer(params),
-        loss=losses.psenet_loss(FLAGS.kernel_num),
+        loss=losses.psenet_loss(params.kernel_num),
     )
 
     return psenet
 
 
-def build_estimator(run_config, FLAGS):
-    tf.compat.v1.summary.FileWriterCache.clear()
+def build_estimator(FLAGS):
+    if FLAGS.gpus_num == 1:
+        strategy = tf.distribute.MirroredStrategy(
+            devices=["device:GPU:{}".format(i) for i in range(FLAGS.gpus_num)]
+        )
+    elif FLAGS.gpus_num > 2:
+        strategy = tf.distribute.MirroredStrategy(
+            devices=["device:GPU:{}".format(i) for i in range(FLAGS.gpus_num)],
+            cross_device_ops=tf.distribute.HierarchicalCopyAllReduce(),
+        )
+    else:
+        strategy = tf.distribute.MirroredStrategy()
+
+    # strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy(
+    #     tf.distribute.experimental.CollectiveCommunication.AUTO
+    # )
+    # strategy = tf.distribute.experimental.ParameterServerStrategy()
+    # strategy = tf.distribute.experimental.ParameterServerStrategy()
+
+    run_config = tf.estimator.RunConfig(
+        model_dir=FLAGS.job_dir,
+        save_checkpoints_secs=FLAGS.save_checkpoints_secs,
+        save_summary_steps=FLAGS.save_summary_steps,
+        keep_checkpoint_every_n_hours=FLAGS.keep_checkpoint_every_n_hours,
+        train_distribute=strategy,
+        session_config=tf.ConfigProto(
+            allow_soft_placement=True, log_device_placement=True
+        ),
+    )
 
     params = tf.contrib.training.HParams(
         kernel_num=FLAGS.kernel_num,
@@ -130,15 +155,16 @@ def build_estimator(run_config, FLAGS):
         decay_rate=FLAGS.decay_rate,
         decay_steps=FLAGS.decay_steps,
         learning_rate=FLAGS.learning_rate,
+        gradient_clipping_norm=FLAGS.gradient_clipping_norm,
     )
 
-    psenet = build_model(params, FLAGS)
-    estimator = tf.keras.estimator.model_to_estimator(
-        keras_model=psenet, model_dir=FLAGS.job_dir, config=run_config
-    )
+    psenet = build_model(params)
 
     estimator = tf.contrib.estimator.add_metrics(
-        estimator, metrics.build_metrics(FLAGS.kernel_num)
+        tf.keras.estimator.model_to_estimator(
+            keras_model=psenet, model_dir=FLAGS.job_dir, config=run_config
+        ),
+        metrics.build_metrics(FLAGS.kernel_num),
     )
 
     exporter = build_exporter()
@@ -159,15 +185,7 @@ def build_estimator(run_config, FLAGS):
 
 
 def train(FLAGS):
-    estimator, train_spec, eval_spec = build_estimator(
-        tf.estimator.RunConfig(
-            model_dir=FLAGS.job_dir,
-            save_checkpoints_secs=FLAGS.save_checkpoints_secs,
-            save_summary_steps=FLAGS.save_summary_steps,
-            keep_checkpoint_every_n_hours=FLAGS.keep_checkpoint_every_n_hours,
-        ),
-        FLAGS,
-    )
+    estimator, train_spec, eval_spec = build_estimator(FLAGS)
     tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
 
 
@@ -247,8 +265,20 @@ if __name__ == "__main__":
         type=int,
     )
     PARSER.add_argument(
+        "--gpus-num",
+        help="The number of gpus to use",
+        default=config.GPUS_NUM,
+        type=int,
+    )
+    PARSER.add_argument(
         "--min-scale",
         help="The minimum kernel scale for pre-processing",
+        default=config.LEARNING_RATE_DECAY_FACTOR,
+        type=float,
+    )
+    PARSER.add_argument(
+        "--gradient-clipping-norm",
+        help="Gradient clipping norm used during training",
         default=config.LEARNING_RATE_DECAY_FACTOR,
         type=float,
     )
