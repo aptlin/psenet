@@ -45,4 +45,3 @@ TEXT_METRICS = "text-metrics"
 TRAINING_DATA_DIR = "./dist/mlt/tfrecords/train"
 WIDTH = "width"
 GPUS_NUM = 0
-CPUS_NUM = 4

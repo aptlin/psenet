@@ -1,7 +1,9 @@
 import argparse
 import os
+import sys
 
 import tensorflow as tf
+from tensorflow.python.client import device_lib
 
 import psenet.config as config
 import psenet.data as data
@@ -64,15 +66,6 @@ def build_optimizer(params):
         ),
         clipnorm=params.gradient_clipping_norm,
     )
-    # return tf.keras.optimizers.SGD(
-    #     learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
-    #         params.learning_rate,
-    #         decay_steps=params.decay_steps,
-    #         decay_rate=params.decay_rate,
-    #         staircase=True,
-    #     ),
-    #     momentum=config.MOMENTUM,
-    # )
 
 
 def build_model(params):
@@ -120,25 +113,7 @@ def build_model(params):
 
 
 def build_estimator(FLAGS):
-    if FLAGS.gpus_num == 1:
-        strategy = tf.distribute.MirroredStrategy(
-            devices=["/device:GPU:{}".format(i) for i in range(FLAGS.gpus_num)]
-        )
-    elif FLAGS.gpus_num > 2:
-        strategy = tf.distribute.MirroredStrategy(
-            devices=[
-                "/device:GPU:{}".format(i) for i in range(FLAGS.gpus_num)
-            ],
-            cross_device_ops=tf.distribute.HierarchicalCopyAllReduce(),
-        )
-    else:
-        strategy = tf.distribute.MirroredStrategy()
-
-    # strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy(
-    #     tf.distribute.experimental.CollectiveCommunication.AUTO
-    # )
-    # strategy = tf.distribute.experimental.ParameterServerStrategy()
-    # strategy = tf.distribute.experimental.ParameterServerStrategy()
+    strategy = tf.distribute.MirroredStrategy()
 
     run_config = tf.estimator.RunConfig(
         model_dir=FLAGS.job_dir,
@@ -146,16 +121,15 @@ def build_estimator(FLAGS):
         save_summary_steps=FLAGS.save_summary_steps,
         keep_checkpoint_every_n_hours=FLAGS.keep_checkpoint_every_n_hours,
         train_distribute=strategy,
+        eval_distribute=strategy,
         session_config=tf.ConfigProto(
             allow_soft_placement=True,
             log_device_placement=True,
             gpu_options=tf.GPUOptions(
-                allow_growth=True,
                 visible_device_list=",".join(
                     [str(i) for i in range(FLAGS.gpus_num)]
-                ),
+                )
             ),
-            device_count={"GPU": FLAGS.gpus_num, "CPU": FLAGS.cpus_num},
         ),
     )
 
@@ -240,7 +214,7 @@ if __name__ == "__main__":
                 - 'efficientnetb3',
                 - 'efficientnetb4',
                 - 'efficientnetb5'
-    """,
+        """,
         default=config.BACKBONE_NAME,
         type=str,
     )
@@ -278,12 +252,6 @@ if __name__ == "__main__":
         "--gpus-num",
         help="The number of GPUs to use",
         default=config.GPUS_NUM,
-        type=int,
-    )
-    PARSER.add_argument(
-        "--cpus-num",
-        help="The number of CPUs to use",
-        default=config.CPUS_NUM,
         type=int,
     )
     PARSER.add_argument(
@@ -347,7 +315,17 @@ if __name__ == "__main__":
         default=config.EVAL_THROTTLE_SECS,
         type=int,
     )
+
     FLAGS, _ = PARSER.parse_known_args()
     tf.compat.v1.logging.set_verbosity("DEBUG")
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
+    if FLAGS.gpus_num > 0:
+        if tf.test.gpu_device_name():
+            print("Default GPU: {}".format(tf.test.gpu_device_name()))
+            print("All Devices:\n {}".format(device_lib.list_local_devices()))
+        else:
+            print("Failed to find default GPU.")
+            sys.exit(1)
+
     train(FLAGS)
