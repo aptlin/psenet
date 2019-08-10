@@ -208,5 +208,5 @@ class Dataset:
                 {config.IMAGE: [None, None, 3], config.MASK: [None, None]},
                 [None, None, config.KERNEL_NUM],
             ),
-        ).prefetch(1)
+        ).prefetch(8)
         return dataset

@@ -79,7 +79,7 @@ def build_model(params):
         classes=params.kernel_num,
         activation="sigmoid",
         weights=None,
-        encoder_weights=None,
+        encoder_weights=params.encoder_weights,
         encoder_features="default",
         pyramid_block_filters=256,
         pyramid_use_batchnorm=True,
@@ -91,8 +91,8 @@ def build_model(params):
 
 
 def model_fn(features, labels, mode, params):
-    model = build_model(params)
     if mode == tf.estimator.ModeKeys.PREDICT:
+        model = build_model(params)
         kernels = model(features[config.IMAGE], training=False)
         predictions = {"kernels": kernels}
         return tf.estimator.EstimatorSpec(
@@ -103,6 +103,7 @@ def model_fn(features, labels, mode, params):
             },
         )
     if mode == tf.estimator.ModeKeys.TRAIN:
+        model = build_model(params)
         optimizer = build_optimizer(params)
 
         kernels = model(features[config.IMAGE], training=True)
@@ -177,6 +178,7 @@ def model_fn(features, labels, mode, params):
         )
 
     if mode == tf.estimator.ModeKeys.EVAL:
+        model = build_model(params)
         kernels = model(features[config.IMAGE], training=False)
         _, _, total_loss = losses.compute_loss(
             labels, kernels, features[config.MASK]
@@ -188,6 +190,22 @@ def model_fn(features, labels, mode, params):
                 labels, kernels, features[config.MASK]
             ),
         )
+
+
+def init_estimator():
+    params = tf.contrib.training.HParams(
+        kernel_num=7,
+        backbone_name=config.BACKBONE_NAME,
+        encoder_weights="imagenet",
+        decay_rate=config.LEARNING_RATE_DECAY_FACTOR,
+        decay_steps=config.LEARNING_RATE_DECAY_STEPS,
+        learning_rate=config.LEARNING_RATE,
+    )
+
+    estimator = tf.estimator.Estimator(
+        model_fn=model_fn, model_dir=config.MODEL_DIR, params=params
+    )
+    return estimator
 
 
 def train(FLAGS):
@@ -206,12 +224,13 @@ def train(FLAGS):
         throttle_secs=FLAGS.eval_throttle_secs,
     )
 
-    if FLAGS.gpus_num > 0:
-        strategy = tf.distribute.MirroredStrategy(
-            devices=["/device:GPU:{}".format(i) for i in range(FLAGS.gpus_num)]
-        )
-    else:
-        strategy = tf.distribute.MirroredStrategy()
+    # if FLAGS.gpus_num > 0:
+    #     strategy = tf.distribute.MirroredStrategy(
+    #         devices=["/device:GPU:{}".format(i)\
+    #  for i in range(FLAGS.gpus_num)]
+    #     )
+    # else:
+    strategy = tf.distribute.MirroredStrategy()
 
     params = tf.contrib.training.HParams(
         kernel_num=FLAGS.kernel_num,
@@ -219,18 +238,18 @@ def train(FLAGS):
         decay_rate=FLAGS.decay_rate,
         decay_steps=FLAGS.decay_steps,
         learning_rate=FLAGS.learning_rate,
+        encoder_weights=None,
     )
 
     run_config = tf.estimator.RunConfig(
         model_dir=FLAGS.job_dir,
         save_checkpoints_secs=FLAGS.save_checkpoints_secs,
         save_summary_steps=FLAGS.save_summary_steps,
-        keep_checkpoint_every_n_hours=FLAGS.keep_checkpoint_every_n_hours,
         train_distribute=strategy,
         eval_distribute=strategy,
         session_config=tf.ConfigProto(
             allow_soft_placement=True,
-            log_device_placement=True,
+            # log_device_placement=True,
             gpu_options=tf.GPUOptions(
                 visible_device_list=",".join(
                     [str(i) for i in range(FLAGS.gpus_num)]
@@ -246,6 +265,9 @@ def train(FLAGS):
         model_dir=FLAGS.job_dir,
         config=run_config,
         params=params,
+        warm_start_from=tf.estimator.WarmStartSettings(
+            ckpt_to_initialize_from=FLAGS.warm_ckpt
+        ),
     )
 
     tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
@@ -369,10 +391,10 @@ if __name__ == "__main__":
         type=int,
     )
     PARSER.add_argument(
-        "--keep-checkpoint-every-n-hours",
-        help="Number of hours between each checkpoint to be saved",
-        default=config.KEEP_CHECKPOINT_EVERY_N_HOURS,
-        type=int,
+        "--warm-ckpt",
+        help="The checkpoint to initialize from.",
+        default=config.WARM_CHECKPOINT,
+        type=str,
     )
     PARSER.add_argument(
         "--eval-start-delay-secs",

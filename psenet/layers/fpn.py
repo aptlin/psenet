@@ -181,6 +181,7 @@ def build_fpn(
 
 def FPN(
     backbone_name="mobilenetv2",
+    backbone=None,
     input_shape=(None, None, 3),
     classes=7,
     activation="sigmoid",
@@ -192,12 +193,13 @@ def FPN(
     pyramid_aggregation="concat",
     pyramid_dropout=None,
 ):
-    backbone = Backbones.get_backbone(
-        backbone_name,
-        input_shape=input_shape,
-        weights=encoder_weights,
-        include_top=False,
-    )
+    if backbone_name and not backbone:
+        backbone = Backbones.get_backbone(
+            backbone_name,
+            input_shape=input_shape,
+            weights=encoder_weights,
+            include_top=False,
+        )
 
     if encoder_features == "default":
         encoder_features = Backbones.get_feature_layers(backbone_name, n=4)

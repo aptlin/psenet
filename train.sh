@@ -1,6 +1,6 @@
 #!/bin/bash
 
-JOB_ID=psenet_rc51
+JOB_ID=psenet_rc60
 gcloud ai-platform jobs submit training $JOB_ID \
     --job-dir gs://gsoc-tfjs/weights/psenet/custom/$JOB_ID \
     --module-name psenet.train \
@@ -10,12 +10,13 @@ gcloud ai-platform jobs submit training $JOB_ID \
     --region us-central1 \
     --config config.yaml \
     -- \
-    --train-steps 10000 \
+    --train-steps 100000 \
     --eval-steps 10 \
     --kernels-num 7 \
-    --batch-size 16 \
+    --batch-size 4 \
     --training-data-dir gs://gsoc-tfjs/data/icdar/mlt/tfrecords/train \
     --eval-data-dir gs://gsoc-tfjs/data/icdar/mlt/tfrecords/eval \
+    --warm-ckpt gs://gsoc-tfjs/weights/psenet/warm \
     --backbone-name mobilenetv2 \
     --learning-rate 0.00001 \
     --decay-steps 10000 \
@@ -23,7 +24,7 @@ gcloud ai-platform jobs submit training $JOB_ID \
     --eval-start-delay-secs 600 \
     --eval-throttle-secs 1800 \
     --save-checkpoints-secs 120 \
-    --save-summary-steps 100 \
-    --readers-num 16 \
-    --resize-length 640 \
-    --gpus-num 2
+    --save-summary-steps 4 \
+    --readers-num 8 \
+    --resize-length 672 \
+    --gpus-num 4

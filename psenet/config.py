@@ -2,7 +2,7 @@ BACKBONE_NAME = "mobilenetv2"
 BATCH_SIZE = 1
 BBOX_SIZE = 8
 BBOXES = "bboxes"
-CROP_SIZE = 640
+CROP_SIZE = 320
 EPSILON = 1e-4
 EVAL_DATA_DIR = "./dist/mlt/tfrecords/eval"
 EVAL_START_DELAY_SECS = 10
@@ -45,3 +45,5 @@ TEXT_METRICS = "text-metrics"
 TRAINING_DATA_DIR = "./dist/mlt/tfrecords/train"
 WIDTH = "width"
 GPUS_NUM = 0
+# https://storage.googleapis.com/gsoc-tfjs/weights/psenet/warm.zip
+WARM_CHECKPOINT = "./dist/warm"
