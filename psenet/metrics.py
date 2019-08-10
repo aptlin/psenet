@@ -2,9 +2,7 @@ import tensorflow as tf
 import psenet.config as config
 
 
-def filter_texts(labels, predictions, kernel_num):
-    masks = labels[:, :, :, kernel_num]
-
+def filter_texts(labels, predictions, masks):
     text = predictions[:, :, :, 0] * masks
     text = tf.where(
         tf.greater(text, 0.5), tf.ones_like(text), tf.zeros_like(text)
@@ -15,15 +13,9 @@ def filter_texts(labels, predictions, kernel_num):
     return gt_text, text
 
 
-def filter_kernels(labels, predictions, kernel_num):
-    masks = labels[:, :, :, kernel_num]
-
+def filter_kernels(labels, predictions, masks):
     gt_text = labels[:, :, :, 0] * masks
-
-    gt_kernels = labels[:, :, :, 1:kernel_num]
-    kernels = predictions[:, :, :, 1:kernel_num]
-
-    kernel = kernels[:, :, :, -1]
+    kernel = predictions[:, :, :, -1]
     kernel = tf.where(
         tf.greater(kernel, 0.5), tf.ones_like(kernel), tf.zeros_like(kernel)
     )
@@ -31,7 +23,7 @@ def filter_kernels(labels, predictions, kernel_num):
     kernel *= gt_text
     kernel = tf.cast(kernel, tf.float32)
 
-    gt_kernel = gt_kernels[:, :, :, -1]
+    gt_kernel = labels[:, :, :, -1]
     gt_kernel *= gt_text
 
     return gt_kernel, kernel
@@ -123,35 +115,78 @@ def filter_input(metric_type):
         raise NotImplementedError("The metric type has not been recognised.")
 
 
-def build_metrics(
-    kernel_num,
-    confusion_matrix_metrics={
-        "overall_accuracy": overall_accuracy,
-        "mean_accuracy": mean_accuracy,
-        "mean_iou": mean_iou,
-        "frequency_weighted_accuracy": frequency_weighted_accuracy,
-    },
-    metric_names=[config.TEXT_METRICS, config.KERNEL_METRICS],
-):
-    def compute(labels, predictions):
-        computed_metrics = {}
-        for name in metric_names:
-            y_true, y_pred = filter_input(name)(
-                labels, predictions[config.KERNELS], kernel_num
-            )
-            matrix = confusion_matrix(y_true, y_pred, 2)
-            confusion_label = "{}/confusion-matrix".format(name)
-            mean_confusion, upd_confusion = tf.compat.v1.metrics.mean_tensor(
-                matrix, name=confusion_label
-            )
-            computed_metrics[confusion_label] = (mean_confusion, upd_confusion)
-            for metric_type, metric in confusion_matrix_metrics.items():
-                val = metric(mean_confusion)
-                label = "{}/{}".format(name, metric_type)
-                computed_metrics[label] = tf.compat.v1.metrics.mean(
-                    val, name=label
-                )
-                tf.compat.v1.summary.scalar("label", val)
-        return computed_metrics
+def compute_metrics(labels, predictions, masks):
+    computed_metrics = {}
 
-    return compute
+    text_metrics_label = config.TEXT_METRICS
+    y_true, y_pred = filter_input(text_metrics_label)(
+        labels, predictions, masks
+    )
+
+    matrix = confusion_matrix(y_true, y_pred, 2)
+    confusion_label = "{}/confusion-matrix".format(text_metrics_label)
+    mean_confusion, upd_confusion = tf.compat.v1.metrics.mean_tensor(
+        matrix, name=confusion_label
+    )
+    computed_metrics[confusion_label] = (mean_confusion, upd_confusion)
+
+    metric_type = "overall_accuracy"
+    metric = overall_accuracy
+    val = metric(mean_confusion)
+    label = "{}/{}".format(text_metrics_label, metric_type)
+    computed_metrics[label] = tf.compat.v1.metrics.mean(val, name=label)
+
+    metric_type = "mean_accuracy"
+    metric = mean_accuracy
+    val = metric(mean_confusion)
+    label = "{}/{}".format(text_metrics_label, metric_type)
+    computed_metrics[label] = tf.compat.v1.metrics.mean(val, name=label)
+
+    metric_type = "mean_iou"
+    metric = mean_iou
+    val = metric(mean_confusion)
+    label = "{}/{}".format(text_metrics_label, metric_type)
+    computed_metrics[label] = tf.compat.v1.metrics.mean(val, name=label)
+
+    metric_type = "frequency_weighted_accuracy"
+    metric = frequency_weighted_accuracy
+    val = metric(mean_confusion)
+    label = "{}/{}".format(text_metrics_label, metric_type)
+    computed_metrics[label] = tf.compat.v1.metrics.mean(val, name=label)
+
+    kernel_metrics_label = config.KERNEL_METRICS
+    y_true, y_pred = filter_input(kernel_metrics_label)(
+        labels, predictions, masks
+    )
+    matrix = confusion_matrix(y_true, y_pred, 2)
+    confusion_label = "{}/confusion-matrix".format(kernel_metrics_label)
+    mean_confusion, upd_confusion = tf.compat.v1.metrics.mean_tensor(
+        matrix, name=confusion_label
+    )
+    computed_metrics[confusion_label] = (mean_confusion, upd_confusion)
+
+    metric_type = "overall_accuracy"
+    metric = overall_accuracy
+    val = metric(mean_confusion)
+    label = "{}/{}".format(kernel_metrics_label, metric_type)
+    computed_metrics[label] = tf.compat.v1.metrics.mean(val, name=label)
+
+    metric_type = "mean_accuracy"
+    metric = mean_accuracy
+    val = metric(mean_confusion)
+    label = "{}/{}".format(kernel_metrics_label, metric_type)
+    computed_metrics[label] = tf.compat.v1.metrics.mean(val, name=label)
+
+    metric_type = "mean_iou"
+    metric = mean_iou
+    val = metric(mean_confusion)
+    label = "{}/{}".format(kernel_metrics_label, metric_type)
+    computed_metrics[label] = tf.compat.v1.metrics.mean(val, name=label)
+
+    metric_type = "frequency_weighted_accuracy"
+    metric = frequency_weighted_accuracy
+    val = metric(mean_confusion)
+    label = "{}/{}".format(kernel_metrics_label, metric_type)
+    computed_metrics[label] = tf.compat.v1.metrics.mean(val, name=label)
+
+    return computed_metrics

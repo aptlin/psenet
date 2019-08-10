@@ -150,14 +150,14 @@ class Dataset:
         gt_text = tf.sign(gt_text)
         gt_text = tf.cast(gt_text, tf.uint8)
         gt_text = tf.expand_dims(gt_text, axis=0)
-        mask = tf.expand_dims(mask, axis=0)
         image = tf.image.random_brightness(image, 32 / 255)
         image = tf.image.random_saturation(image, 0.5, 1.5)
         image = tf.cast(image, tf.float32)
-        label = tf.concat([gt_text, gt_kernels, mask], axis=0)
+        label = tf.concat([gt_text, gt_kernels], axis=0)
         label = tf.transpose(label, perm=[1, 2, 0])
         label = tf.cast(label, tf.float32)
-        return ({config.IMAGE: image}, label)
+        mask = tf.cast(mask, tf.float32)
+        return ({config.IMAGE: image, config.MASK: mask}, label)
 
     def _guarantee_validity(self, inputs, label):
         def is_valid(side):
@@ -194,7 +194,9 @@ class Dataset:
         dataset = dataset.filter(self._guarantee_validity)
 
         if self.should_shuffle:
-            dataset = dataset.shuffle(buffer_size=config.SHUFFLE_BUFFER_SIZE)
+            dataset = dataset.shuffle(
+                buffer_size=config.NUM_BATCHES_TO_SHUFFLE * self.batch_size + 1
+            )
 
         if self.should_repeat:
             dataset = dataset.repeat()
@@ -203,8 +205,8 @@ class Dataset:
         dataset = dataset.padded_batch(
             self.batch_size,
             padded_shapes=(
-                {config.IMAGE: [None, None, 3]},
-                [None, None, config.KERNEL_NUM + 1],
+                {config.IMAGE: [None, None, 3], config.MASK: [None, None]},
+                [None, None, config.KERNEL_NUM],
             ),
-        ).prefetch(self.batch_size)
+        ).prefetch(1)
         return dataset

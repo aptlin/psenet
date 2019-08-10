@@ -96,51 +96,37 @@ def ohem_batch(labels, predictions, masks):
     return selected_masks
 
 
-def psenet_loss(kernel_num):
-    def loss(gt_labels, pred_labels):
-        # compute text loss
-        texts = pred_labels[:, :, :, 0]
-        gt_texts = gt_labels[:, :, :, 0]
+def compute_loss(gt_labels, pred_labels, masks):
+    texts = pred_labels[:, :, :, 0]
+    gt_texts = gt_labels[:, :, :, 0]
 
-        kernels = pred_labels[:, :, :, 1:kernel_num]
-        gt_kernels = gt_labels[:, :, :, 1:kernel_num]
+    kernels = pred_labels[:, :, :, 1:]
+    gt_kernels = gt_labels[:, :, :, 1:]
 
-        masks = gt_labels[:, :, :, kernel_num]
+    selected_masks = ohem_batch(gt_texts, texts, masks)
 
-        selected_masks = ohem_batch(gt_texts, texts, masks)
+    text_loss = dice_loss(gt_texts, texts, selected_masks)
 
-        text_loss = dice_loss(gt_texts, texts, selected_masks)
+    # compute kernel loss
+    selected_masks = tf.logical_and(
+        tf.greater(texts, 0.5), tf.greater(masks, 0.5)
+    )
+    selected_masks = tf.cast(selected_masks, tf.float32)
 
-        tf.compat.v1.summary.scalar("text_loss", text_loss)
+    indices = tf.range(tf.shape(gt_kernels)[3])
 
-        # compute kernel loss
-        selected_masks = tf.logical_and(
-            tf.greater(texts, 0.5), tf.greater(masks, 0.5)
-        )
-        selected_masks = tf.cast(selected_masks, tf.float32)
-
-        indices = tf.range(tf.shape(gt_kernels)[3])
-
-        def compute_kernel_loss(index):
-            return dice_loss(
-                gt_kernels[:, :, :, index],
-                kernels[:, :, :, index],
-                selected_masks,
-            )
-
-        kernels_loss = tf.math.reduce_mean(
-            tf.map_fn(compute_kernel_loss, indices, dtype=tf.float32)
+    def compute_kernel_loss(index):
+        return dice_loss(
+            gt_kernels[:, :, :, index], kernels[:, :, :, index], selected_masks
         )
 
-        tf.compat.v1.summary.scalar("kernels_loss", kernels_loss)
+    kernel_loss = tf.math.reduce_mean(
+        tf.map_fn(compute_kernel_loss, indices, dtype=tf.float32)
+    )
 
-        current_loss = (
-            config.TEXT_LOSS_WEIGHT * text_loss
-            + config.KERNELS_LOSS_WEIGHT * kernels_loss
-        )
+    current_loss = (
+        config.TEXT_LOSS_WEIGHT * text_loss
+        + config.KERNELS_LOSS_WEIGHT * kernel_loss
+    )
 
-        tf.compat.v1.summary.scalar("total_loss", current_loss)
-
-        return current_loss
-
-    return loss
+    return text_loss, kernel_loss, current_loss

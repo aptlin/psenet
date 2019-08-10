@@ -57,14 +57,15 @@ def build_exporter():
 
 
 def build_optimizer(params):
-    return tf.keras.optimizers.Adam(
-        learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
-            params.learning_rate,
+    return tf.train.AdamOptimizer(
+        learning_rate=tf.compat.v1.train.exponential_decay(
+            learning_rate=params.learning_rate,
+            global_step=tf.train.get_or_create_global_step(),
             decay_steps=params.decay_steps,
             decay_rate=params.decay_rate,
             staircase=True,
         ),
-        clipnorm=params.gradient_clipping_norm,
+        use_locking=True,
     )
 
 
@@ -78,7 +79,7 @@ def build_model(params):
         classes=params.kernel_num,
         activation="sigmoid",
         weights=None,
-        encoder_weights="imagenet",
+        encoder_weights=None,
         encoder_features="default",
         pyramid_block_filters=256,
         pyramid_use_batchnorm=True,
@@ -86,34 +87,139 @@ def build_model(params):
         pyramid_dropout=None,
     )(images)
 
-    def augment(tensors):
-        images = tensors[0]
-        kernels = tensors[1]
-        images_shape = tf.shape(images)
-        batch_size = images_shape[0]
-        height = images_shape[1]
-        width = images_shape[2]
-        ones = tf.ones([batch_size, height, width, 1])
-        kernels = tf.image.pad_to_bounding_box(kernels, 0, 0, height, width)
-        return tf.concat([kernels, ones], axis=-1)
+    return tf.keras.Model(inputs={config.IMAGE: images}, outputs=kernels)
 
-    predictions = tf.keras.layers.Lambda(
-        augment,
-        output_shape=[None, None, params.kernel_num + 1],
-        name=config.KERNELS,
-    )([images, kernels])
-    psenet = tf.keras.Model(inputs={config.IMAGE: images}, outputs=predictions)
 
-    psenet.compile(
-        optimizer=build_optimizer(params),
-        loss=losses.psenet_loss(params.kernel_num),
+def model_fn(features, labels, mode, params):
+    model = build_model(params)
+    if mode == tf.estimator.ModeKeys.PREDICT:
+        kernels = model(features[config.IMAGE], training=False)
+        predictions = {"kernels": kernels}
+        return tf.estimator.EstimatorSpec(
+            mode=tf.estimator.ModeKeys.PREDICT,
+            predictions=predictions,
+            export_outputs={
+                "detect": tf.estimator.export.PredictOutput(predictions)
+            },
+        )
+    if mode == tf.estimator.ModeKeys.TRAIN:
+        optimizer = build_optimizer(params)
+
+        kernels = model(features[config.IMAGE], training=True)
+        text_loss, kernel_loss, total_loss = losses.compute_loss(
+            labels, kernels, features[config.MASK]
+        )
+
+        tf.identity(text_loss, "text_loss")
+        tf.identity(kernel_loss, "kernel_loss")
+        tf.identity(total_loss, "total_loss")
+
+        computed_metrics = metrics.compute_metrics(
+            labels, kernels, features[config.MASK]
+        )
+
+        text_metrics_label = config.TEXT_METRICS
+        metric_type = "overall_accuracy"
+        label = "{}/{}".format(text_metrics_label, metric_type)
+        metric_val = computed_metrics[label]
+        tf.identity(metric_val[1], name=label)
+        tf.compat.v1.summary.scalar(label, metric_val[1])
+
+        metric_type = "mean_accuracy"
+        label = "{}/{}".format(text_metrics_label, metric_type)
+        metric_val = computed_metrics[label]
+        tf.identity(metric_val[1], name=label)
+        tf.compat.v1.summary.scalar(label, metric_val[1])
+
+        metric_type = "mean_iou"
+        label = "{}/{}".format(text_metrics_label, metric_type)
+        metric_val = computed_metrics[label]
+        tf.identity(metric_val[1], name=label)
+        tf.compat.v1.summary.scalar(label, metric_val[1])
+
+        metric_type = "frequency_weighted_accuracy"
+        label = "{}/{}".format(text_metrics_label, metric_type)
+        metric_val = computed_metrics[label]
+        tf.identity(metric_val[1], name=label)
+        tf.compat.v1.summary.scalar(label, metric_val[1])
+
+        kernel_metrics_label = config.KERNEL_METRICS
+        metric_type = "overall_accuracy"
+        label = "{}/{}".format(kernel_metrics_label, metric_type)
+        metric_val = computed_metrics[label]
+        tf.identity(metric_val[1], name=label)
+        tf.compat.v1.summary.scalar(label, metric_val[1])
+
+        metric_type = "mean_accuracy"
+        label = "{}/{}".format(kernel_metrics_label, metric_type)
+        metric_val = computed_metrics[label]
+        tf.identity(metric_val[1], name=label)
+        tf.compat.v1.summary.scalar(label, metric_val[1])
+
+        metric_type = "mean_iou"
+        label = "{}/{}".format(kernel_metrics_label, metric_type)
+        metric_val = computed_metrics[label]
+        tf.identity(metric_val[1], name=label)
+        tf.compat.v1.summary.scalar(label, metric_val[1])
+
+        metric_type = "frequency_weighted_accuracy"
+        label = "{}/{}".format(kernel_metrics_label, metric_type)
+        metric_val = computed_metrics[label]
+        tf.identity(metric_val[1], name=label)
+        tf.compat.v1.summary.scalar(label, metric_val[1])
+
+        return tf.estimator.EstimatorSpec(
+            mode=tf.estimator.ModeKeys.TRAIN,
+            loss=total_loss,
+            train_op=optimizer.minimize(
+                total_loss, tf.train.get_or_create_global_step()
+            ),
+        )
+
+    if mode == tf.estimator.ModeKeys.EVAL:
+        kernels = model(features[config.IMAGE], training=False)
+        _, _, total_loss = losses.compute_loss(
+            labels, kernels, features[config.MASK]
+        )
+        return tf.estimator.EstimatorSpec(
+            mode=tf.estimator.ModeKeys.EVAL,
+            loss=total_loss,
+            eval_metric_ops=metrics.compute_metrics(
+                labels, kernels, features[config.MASK]
+            ),
+        )
+
+
+def train(FLAGS):
+    exporter = build_exporter()
+
+    train_spec = tf.estimator.TrainSpec(
+        input_fn=build_dataset(tf.estimator.ModeKeys.TRAIN, FLAGS),
+        max_steps=FLAGS.train_steps,
     )
 
-    return psenet
+    eval_spec = tf.estimator.EvalSpec(
+        input_fn=build_dataset(tf.estimator.ModeKeys.EVAL, FLAGS),
+        exporters=exporter,
+        steps=FLAGS.eval_steps,
+        start_delay_secs=FLAGS.eval_start_delay_secs,
+        throttle_secs=FLAGS.eval_throttle_secs,
+    )
 
+    if FLAGS.gpus_num > 0:
+        strategy = tf.distribute.MirroredStrategy(
+            devices=["/device:GPU:{}".format(i) for i in range(FLAGS.gpus_num)]
+        )
+    else:
+        strategy = tf.distribute.MirroredStrategy()
 
-def build_estimator(FLAGS):
-    strategy = tf.distribute.MirroredStrategy()
+    params = tf.contrib.training.HParams(
+        kernel_num=FLAGS.kernel_num,
+        backbone_name=FLAGS.backbone_name,
+        decay_rate=FLAGS.decay_rate,
+        decay_steps=FLAGS.decay_steps,
+        learning_rate=FLAGS.learning_rate,
+    )
 
     run_config = tf.estimator.RunConfig(
         model_dir=FLAGS.job_dir,
@@ -128,48 +234,20 @@ def build_estimator(FLAGS):
             gpu_options=tf.GPUOptions(
                 visible_device_list=",".join(
                     [str(i) for i in range(FLAGS.gpus_num)]
-                )
+                ),
+                allow_growth=True,
             ),
+            device_count={"GPU": FLAGS.gpus_num},
         ),
     )
 
-    params = tf.contrib.training.HParams(
-        kernel_num=FLAGS.kernel_num,
-        backbone_name=FLAGS.backbone_name,
-        decay_rate=FLAGS.decay_rate,
-        decay_steps=FLAGS.decay_steps,
-        learning_rate=FLAGS.learning_rate,
-        gradient_clipping_norm=FLAGS.gradient_clipping_norm,
+    estimator = tf.estimator.Estimator(
+        model_fn=model_fn,
+        model_dir=FLAGS.job_dir,
+        config=run_config,
+        params=params,
     )
 
-    psenet = build_model(params)
-
-    estimator = tf.contrib.estimator.add_metrics(
-        tf.keras.estimator.model_to_estimator(
-            keras_model=psenet, model_dir=FLAGS.job_dir, config=run_config
-        ),
-        metrics.build_metrics(FLAGS.kernel_num),
-    )
-
-    exporter = build_exporter()
-
-    train_spec = tf.estimator.TrainSpec(
-        input_fn=build_dataset(tf.estimator.ModeKeys.TRAIN, FLAGS),
-        max_steps=FLAGS.train_steps,
-    )
-    eval_spec = tf.estimator.EvalSpec(
-        input_fn=build_dataset(tf.estimator.ModeKeys.EVAL, FLAGS),
-        exporters=exporter,
-        steps=FLAGS.eval_steps,
-        start_delay_secs=FLAGS.eval_start_delay_secs,
-        throttle_secs=FLAGS.eval_throttle_secs,
-    )
-
-    return estimator, train_spec, eval_spec
-
-
-def train(FLAGS):
-    estimator, train_spec, eval_spec = build_estimator(FLAGS)
     tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
 
 
@@ -261,12 +339,6 @@ if __name__ == "__main__":
         type=float,
     )
     PARSER.add_argument(
-        "--gradient-clipping-norm",
-        help="Gradient clipping norm used during training",
-        default=config.LEARNING_RATE_DECAY_FACTOR,
-        type=float,
-    )
-    PARSER.add_argument(
         "--batch-size",
         help="The batch size for training and evaluation",
         default=config.BATCH_SIZE,
@@ -319,6 +391,10 @@ if __name__ == "__main__":
     FLAGS, _ = PARSER.parse_known_args()
     tf.compat.v1.logging.set_verbosity("DEBUG")
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(
+        [str(i) for i in range(FLAGS.gpus_num)]
+    )
+    os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 
     if FLAGS.gpus_num > 0:
         if tf.test.gpu_device_name():
