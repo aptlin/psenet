@@ -104,14 +104,17 @@ def compute_loss(labels, predictions, masks):
     ground_truth_kernels = labels[:, :, :, 1:]
 
     # compute text loss
-    selected_masks = ohem_batch(ground_truth_texts, predicted_texts, masks)
-    text_loss = dice_loss(ground_truth_texts, predicted_texts, selected_masks)
+    text_masks = ohem_batch(ground_truth_texts, predicted_texts, masks)
+    text_loss = tf.identity(
+        dice_loss(ground_truth_texts, predicted_texts, text_masks),
+        name="losses/text_loss",
+    )
 
     # compute kernel loss
-    selected_masks = tf.logical_and(
+    kernel_masks = tf.logical_and(
         tf.greater(predicted_texts, 0.5), tf.greater(masks, 0.5)
     )
-    selected_masks = tf.cast(selected_masks, tf.float32)
+    kernel_masks = tf.cast(kernel_masks, tf.float32)
 
     indices = tf.range(tf.shape(ground_truth_kernels)[3])
 
@@ -119,16 +122,18 @@ def compute_loss(labels, predictions, masks):
         return dice_loss(
             ground_truth_kernels[:, :, :, index],
             predicted_kernels[:, :, :, index],
-            selected_masks,
+            kernel_masks,
         )
 
     kernel_loss = tf.math.reduce_mean(
-        tf.map_fn(compute_kernel_loss, indices, dtype=tf.float32)
+        tf.map_fn(compute_kernel_loss, indices, dtype=tf.float32),
+        name="losses/kernel_loss",
     )
 
-    current_loss = (
-        config.TEXT_LOSS_WEIGHT * text_loss
-        + config.KERNELS_LOSS_WEIGHT * kernel_loss
+    current_loss = tf.math.add(
+        config.TEXT_LOSS_WEIGHT * text_loss,
+        config.KERNELS_LOSS_WEIGHT * kernel_loss,
+        name="losses/current_loss",
     )
 
     return text_loss, kernel_loss, current_loss
