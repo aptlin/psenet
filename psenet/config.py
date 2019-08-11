@@ -47,3 +47,4 @@ WIDTH = "width"
 GPUS_NUM = 0
 # https://storage.googleapis.com/gsoc-tfjs/weights/psenet/warm.zip
 WARM_CHECKPOINT = "./dist/warm"
+REGULARIZATION_WEIGHT_DECAY = 5e-4

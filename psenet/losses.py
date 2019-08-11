@@ -28,8 +28,8 @@ def ohem_single(labels, predictions, masks):
     has_positive_texts = tf.greater(labels, 0.5)
     has_positive_masks = tf.greater(masks, 0.5)
 
-    masks = tf.cast(masks, tf.float32)
-    masks = tf.expand_dims(masks, axis=0)
+    default_mask = tf.cast(masks, tf.float32)
+    default_mask = tf.expand_dims(default_mask, axis=0)
 
     positive_texts_num = tf.cast(has_positive_texts, tf.int64)
     positive_texts_num = tf.math.reduce_sum(positive_texts_num)
@@ -44,7 +44,7 @@ def ohem_single(labels, predictions, masks):
 
     has_zero_net_positive_texts = tf.math.equal(positive_texts_num, 0)
 
-    has_negative_texts = tf.less_equal(labels, 0.5)
+    has_negative_texts = tf.logical_not(has_positive_texts)
 
     negative_texts_num = tf.cast(has_negative_texts, tf.int64)
     negative_texts_num = tf.math.reduce_sum(negative_texts_num)
@@ -74,7 +74,7 @@ def ohem_single(labels, predictions, masks):
         tf.logical_or(
             has_zero_net_positive_texts, has_zero_net_negative_texts
         ),
-        lambda: masks,
+        lambda: default_mask,
         compute_selected_mask,
     )
 
@@ -88,7 +88,7 @@ def ohem_batch(labels, predictions, masks):
     indices = tf.range(texts_count, dtype=tf.int64)
     selected_masks = tf.map_fn(
         lambda idx: ohem_single(
-            predictions[idx, :, :], labels[idx, :, :], masks[idx, :, :]
+            labels[idx, :, :], predictions[idx, :, :], masks[idx, :, :]
         ),
         indices,
         dtype=tf.float32,
@@ -96,28 +96,30 @@ def ohem_batch(labels, predictions, masks):
     return selected_masks
 
 
-def compute_loss(gt_labels, pred_labels, masks):
-    texts = pred_labels[:, :, :, 0]
-    gt_texts = gt_labels[:, :, :, 0]
+def compute_loss(labels, predictions, masks):
+    predicted_texts = predictions[:, :, :, 0]
+    ground_truth_texts = labels[:, :, :, 0]
 
-    kernels = pred_labels[:, :, :, 1:]
-    gt_kernels = gt_labels[:, :, :, 1:]
+    predicted_kernels = predictions[:, :, :, 1:]
+    ground_truth_kernels = labels[:, :, :, 1:]
 
-    selected_masks = ohem_batch(gt_texts, texts, masks)
-
-    text_loss = dice_loss(gt_texts, texts, selected_masks)
+    # compute text loss
+    selected_masks = ohem_batch(ground_truth_texts, predicted_texts, masks)
+    text_loss = dice_loss(ground_truth_texts, predicted_texts, selected_masks)
 
     # compute kernel loss
     selected_masks = tf.logical_and(
-        tf.greater(texts, 0.5), tf.greater(masks, 0.5)
+        tf.greater(predicted_texts, 0.5), tf.greater(masks, 0.5)
     )
     selected_masks = tf.cast(selected_masks, tf.float32)
 
-    indices = tf.range(tf.shape(gt_kernels)[3])
+    indices = tf.range(tf.shape(ground_truth_kernels)[3])
 
     def compute_kernel_loss(index):
         return dice_loss(
-            gt_kernels[:, :, :, index], kernels[:, :, :, index], selected_masks
+            ground_truth_kernels[:, :, :, index],
+            predicted_kernels[:, :, :, index],
+            selected_masks,
         )
 
     kernel_loss = tf.math.reduce_mean(

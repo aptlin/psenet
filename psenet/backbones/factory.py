@@ -1,4 +1,3 @@
-from psenet.backbones.mobilenet_v2 import MobileNetV2
 import tensorflow.keras.applications as ka
 
 
@@ -28,7 +27,10 @@ class ModelsFactory:
         "nasnetmobile": [ka.nasnet.NASNetMobile, ka.nasnet.preprocess_input],
         # MobileNet
         "mobilenet": [ka.mobilenet.MobileNet, ka.mobilenet.preprocess_input],
-        "mobilenetv2": [MobileNetV2, ka.mobilenet_v2.preprocess_input],
+        "mobilenetv2": [
+            ka.mobilenet_v2.MobileNetV2,
+            ka.mobilenet_v2.preprocess_input,
+        ],
     }
 
     @property

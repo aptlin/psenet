@@ -3,7 +3,7 @@ from psenet.layers.common import Conv2dBn
 from psenet.backbones.factory import Backbones
 
 
-def Conv3x3BnReLU(filters, use_batchnorm, name=None):
+def Conv3x3BnReLU(filters, use_batchnorm, name=None, weight_decay=None):
     def wrapper(input_tensor):
         return Conv2dBn(
             filters,
@@ -13,26 +13,33 @@ def Conv3x3BnReLU(filters, use_batchnorm, name=None):
             padding="same",
             use_batchnorm=use_batchnorm,
             name=name,
+            kernel_regularizer=tf.keras.regularizers.l2(weight_decay)
+            if weight_decay
+            else None,
         )(input_tensor)
 
     return wrapper
 
 
-def DoubleConv3x3BnReLU(filters, use_batchnorm, name=None):
+def DoubleConv3x3BnReLU(filters, use_batchnorm, name=None, weight_decay=None):
     name1, name2 = None, None
     if name is not None:
         name1 = name + "a"
         name2 = name + "b"
 
     def wrapper(input_tensor):
-        x = Conv3x3BnReLU(filters, use_batchnorm, name=name1)(input_tensor)
-        x = Conv3x3BnReLU(filters, use_batchnorm, name=name2)(x)
+        x = Conv3x3BnReLU(
+            filters, use_batchnorm, name=name1, weight_decay=weight_decay
+        )(input_tensor)
+        x = Conv3x3BnReLU(
+            filters, use_batchnorm, name=name2, weight_decay=weight_decay
+        )(x)
         return x
 
     return wrapper
 
 
-def FPNBlock(pyramid_filters, stage):
+def FPNBlock(pyramid_filters, stage, weight_decay=None):
     conv0_name = "fpn_stage_p{}_pre_conv".format(stage)
     conv1_name = "fpn_stage_p{}_conv".format(stage)
     add_name = "fpn_stage_p{}_add".format(stage)
@@ -53,6 +60,9 @@ def FPNBlock(pyramid_filters, stage):
                 kernel_size=(1, 1),
                 kernel_initializer="he_uniform",
                 name=conv0_name,
+                kernel_regularizer=tf.keras.regularizers.l2(weight_decay)
+                if weight_decay
+                else None,
             )(input_tensor)
 
         skip = tf.keras.layers.Conv2D(
@@ -60,6 +70,9 @@ def FPNBlock(pyramid_filters, stage):
             kernel_size=(1, 1),
             kernel_initializer="he_uniform",
             name=conv1_name,
+            kernel_regularizer=tf.keras.regularizers.l2(weight_decay)
+            if weight_decay
+            else None,
         )(skip)
 
         x = tf.keras.layers.UpSampling2D((2, 2), name=up_name)(input_tensor)
@@ -85,6 +98,7 @@ def build_fpn(
     use_batchnorm=True,
     aggregation="sum",
     dropout=None,
+    weight_decay=None,
 ):
     inputs = backbone.input
     outputs = backbone.output
@@ -98,23 +112,43 @@ def build_fpn(
     ]
 
     # build FPN pyramid
-    p5 = FPNBlock(pyramid_filters, stage=5)(outputs, skips[0])
-    p4 = FPNBlock(pyramid_filters, stage=4)(p5, skips[1])
-    p3 = FPNBlock(pyramid_filters, stage=3)(p4, skips[2])
-    p2 = FPNBlock(pyramid_filters, stage=2)(p3, skips[3])
+    p5 = FPNBlock(pyramid_filters, stage=5, weight_decay=weight_decay)(
+        outputs, skips[0]
+    )
+    p4 = FPNBlock(pyramid_filters, stage=4, weight_decay=weight_decay)(
+        p5, skips[1]
+    )
+    p3 = FPNBlock(pyramid_filters, stage=3, weight_decay=weight_decay)(
+        p4, skips[2]
+    )
+    p2 = FPNBlock(pyramid_filters, stage=2, weight_decay=weight_decay)(
+        p3, skips[3]
+    )
 
     # add segmentation head to each
     s5 = DoubleConv3x3BnReLU(
-        segmentation_filters, use_batchnorm, name="segm_stage5"
+        segmentation_filters,
+        use_batchnorm,
+        name="segm_stage5",
+        weight_decay=weight_decay,
     )(p5)
     s4 = DoubleConv3x3BnReLU(
-        segmentation_filters, use_batchnorm, name="segm_stage4"
+        segmentation_filters,
+        use_batchnorm,
+        name="segm_stage4",
+        weight_decay=weight_decay,
     )(p4)
     s3 = DoubleConv3x3BnReLU(
-        segmentation_filters, use_batchnorm, name="segm_stage3"
+        segmentation_filters,
+        use_batchnorm,
+        name="segm_stage3",
+        weight_decay=weight_decay,
     )(p3)
     s2 = DoubleConv3x3BnReLU(
-        segmentation_filters, use_batchnorm, name="segm_stage2"
+        segmentation_filters,
+        use_batchnorm,
+        name="segm_stage2",
+        weight_decay=weight_decay,
     )(p2)
 
     # upsampling to same resolution
@@ -151,7 +185,10 @@ def build_fpn(
 
     # final stage
     outputs = Conv3x3BnReLU(
-        segmentation_filters, use_batchnorm, name="final_stage"
+        segmentation_filters,
+        use_batchnorm,
+        name="final_stage",
+        weight_decay=weight_decay,
     )(outputs)
     outputs = tf.keras.layers.UpSampling2D(
         size=(2, 2), interpolation="bilinear", name="final_upsampling"
@@ -165,6 +202,9 @@ def build_fpn(
         use_bias=True,
         kernel_initializer="glorot_uniform",
         name="head_conv",
+        kernel_regularizer=tf.keras.regularizers.l2(weight_decay)
+        if weight_decay
+        else None,
     )(outputs)
     outputs = tf.keras.layers.Activation(activation, name=activation)(outputs)
 
@@ -192,6 +232,7 @@ def FPN(
     pyramid_use_batchnorm=True,
     pyramid_aggregation="concat",
     pyramid_dropout=None,
+    weight_decay=None,
 ):
     if backbone_name and not backbone:
         backbone = Backbones.get_backbone(
@@ -214,6 +255,7 @@ def FPN(
         activation=activation,
         classes=classes,
         aggregation=pyramid_aggregation,
+        weight_decay=weight_decay,
     )
 
     if weights is not None:

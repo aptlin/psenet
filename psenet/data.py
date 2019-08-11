@@ -14,6 +14,7 @@ class Dataset:
         dataset_dir,
         batch_size,
         resize_length=config.RESIZE_LENGTH,
+        crop_size=config.CROP_SIZE,
         min_scale=config.MIN_SCALE,
         kernel_num=config.KERNEL_NUM,
         num_readers=config.NUM_READERS,
@@ -29,6 +30,7 @@ class Dataset:
         self.should_repeat = should_repeat
         self.min_scale = min_scale
         self.kernel_num = kernel_num
+        self.crop_size = crop_size
         self.should_augment = should_augment
 
     def _parse_example(self, example_prototype):
@@ -138,20 +140,22 @@ class Dataset:
                 tensors.append(gt_kernels[idx - 1])
             tensors = preprocess.random_flip(tensors)
             tensors = preprocess.random_rotate(tensors)
-            tensors = preprocess.random_background_crop(tensors)
+            tensors = preprocess.random_background_crop(
+                tensors, crop_size=self.crop_size
+            )
             image, gt_text, mask, gt_kernels = (
                 tensors[0],
                 tensors[1],
                 tensors[2],
                 tensors[3:],
             )
+            image = tf.image.random_brightness(image, 32 / 255)
+            image = tf.image.random_saturation(image, 0.5, 1.5)
 
         gt_text = tf.cast(gt_text, tf.float32)
         gt_text = tf.sign(gt_text)
         gt_text = tf.cast(gt_text, tf.uint8)
         gt_text = tf.expand_dims(gt_text, axis=0)
-        image = tf.image.random_brightness(image, 32 / 255)
-        image = tf.image.random_saturation(image, 0.5, 1.5)
         image = tf.cast(image, tf.float32)
         label = tf.concat([gt_text, gt_kernels], axis=0)
         label = tf.transpose(label, perm=[1, 2, 0])
@@ -208,5 +212,5 @@ class Dataset:
                 {config.IMAGE: [None, None, 3], config.MASK: [None, None]},
                 [None, None, config.KERNEL_NUM],
             ),
-        ).prefetch(8)
+        ).prefetch(16)
         return dataset

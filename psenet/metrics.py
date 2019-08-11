@@ -76,17 +76,17 @@ def overall_accuracy(confusion_matrix):
 def mean_accuracy(confusion_matrix):
     epsilon = config.EPSILON
     diagonal = tf.linalg.diag_part(confusion_matrix)
-    columns = tf.math.reduce_sum(confusion_matrix, axis=1)
-    mean_accuracy = tf.math.reduce_mean(diagonal / (columns + epsilon))
+    row_sum = tf.math.reduce_sum(confusion_matrix, axis=1)
+    mean_accuracy = tf.math.reduce_mean(diagonal / (row_sum + epsilon))
     return mean_accuracy
 
 
 def mean_iou(confusion_matrix):
     epsilon = config.EPSILON
     diagonal = tf.linalg.diag_part(confusion_matrix)
-    columns = tf.math.reduce_sum(confusion_matrix, axis=1)
-    rows = tf.math.reduce_sum(confusion_matrix, axis=0)
-    iou = diagonal / (columns + rows - diagonal + epsilon)
+    row_sum = tf.math.reduce_sum(confusion_matrix, axis=1)
+    col_sum = tf.math.reduce_sum(confusion_matrix, axis=0)
+    iou = diagonal / (row_sum + col_sum - diagonal + epsilon)
     mean_iou = tf.math.reduce_mean(iou)
     return mean_iou
 
