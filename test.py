@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 # tf.enable_eager_execution()
-from psenet.data.generator import Dataset
+from psenet.data import Dataset
 from psenet import config
 
 dataset = Dataset(

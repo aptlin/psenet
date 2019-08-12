@@ -128,9 +128,13 @@ def compute_loss(labels, predictions, masks):
         name="losses/kernel_loss",
     )
 
-    current_loss = tf.math.add(
-        config.TEXT_LOSS_WEIGHT * text_loss,
-        config.KERNELS_LOSS_WEIGHT * kernel_loss,
+    current_loss = (
+        config.TEXT_LOSS_WEIGHT * text_loss
+        + config.KERNELS_LOSS_WEIGHT * kernel_loss
+    )
+
+    current_loss = tf.math.add_n(
+        [current_loss] + tf.losses.get_regularization_losses(),
         name="losses/current_loss",
     )
 

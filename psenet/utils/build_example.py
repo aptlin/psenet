@@ -144,7 +144,10 @@ def _bytes_list_feature(values):
 def labelled_image_to_tfexample(
     image_data, text_data, filename, height, width, bboxes
 ):
-    tags = "".join(map(lambda text: str(int(text == "###")), text_data))
+    tags = "".join(
+        map(lambda text: str(int(not text.startswith("###"))), text_data)
+    )
+    assert len(tags) == len(bboxes) // config.BBOX_SIZE
     return tf.train.Example(
         features=tf.train.Features(
             feature={

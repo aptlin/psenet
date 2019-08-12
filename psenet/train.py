@@ -99,7 +99,7 @@ def build_model(params):
         encoder_weights=params.encoder_weights,
         encoder_features="default",
         pyramid_block_filters=256,
-        segmentation_filters=256,
+        segmentation_filters=128,
         pyramid_use_batchnorm=True,
         pyramid_aggregation="concat",
         pyramid_dropout=None,

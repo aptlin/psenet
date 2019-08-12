@@ -45,6 +45,5 @@ TEXT_METRICS = "text-metrics"
 TRAINING_DATA_DIR = "./dist/mlt/tfrecords/train"
 WIDTH = "width"
 GPUS_NUM = 0
-# https://storage.googleapis.com/gsoc-tfjs/weights/psenet/warm.zip
-WARM_CHECKPOINT = "./dist/warm"
+WARM_CHECKPOINT = "./dist/warm/segmentation_filters_128"
 REGULARIZATION_WEIGHT_DECAY = 5e-4

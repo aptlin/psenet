@@ -43,12 +43,6 @@ if __name__ == "__main__":
         type=str,
     )
     PARSER.add_argument(
-        "--job-dir",
-        help="The model directory",
-        default=config.MODEL_DIR,
-        type=str,
-    )
-    PARSER.add_argument(
         "--kernel-num",
         help="The number of output kernels from FPN",
         default=config.KERNEL_NUM,

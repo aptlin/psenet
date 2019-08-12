@@ -91,17 +91,15 @@ class Dataset:
         tags = str(tags)
         gt_text = np.zeros([height, width], dtype="uint8")
         mask = np.ones([height, width], dtype="uint8")
-        bboxes_count, bboxes_width = np.asarray(bboxes.shape).astype("int64")[
-            :2
-        ]
+        bboxes_count, num_points = np.asarray(bboxes.shape).astype("int64")[:2]
         if bboxes_count > 0:
             bboxes = np.reshape(
                 bboxes * ([width, height] * 4),
-                (bboxes_count, int(bboxes_width / 2), 2),
+                (bboxes_count, int(num_points / 2), 2),
             ).astype("int32")
             for i in range(bboxes_count):
                 cv2.drawContours(gt_text, [bboxes[i]], -1, i + 1, -1)
-                if tags[i] != "1":
+                if tags[i] == "0":
                     cv2.drawContours(mask, [bboxes[i]], -1, 0, -1)
 
         gt_kernels = []
@@ -215,5 +213,5 @@ class Dataset:
                 {config.IMAGE: [None, None, 3], config.MASK: [None, None]},
                 [None, None, config.KERNEL_NUM],
             ),
-        ).prefetch(16)
+        ).prefetch(8)
         return dataset
