@@ -29,7 +29,6 @@ def ohem_single(labels, predictions, masks):
     has_positive_masks = tf.greater(masks, 0.5)
 
     default_mask = tf.cast(masks, tf.float32)
-    default_mask = tf.expand_dims(default_mask, axis=0)
 
     positive_texts_num = tf.cast(has_positive_texts, tf.int64)
     positive_texts_num = tf.math.reduce_sum(positive_texts_num)
@@ -67,7 +66,6 @@ def ohem_single(labels, predictions, masks):
         )
 
         selected_mask = tf.cast(selected_mask, tf.float32)
-        selected_mask = tf.expand_dims(selected_mask, axis=0)
         return selected_mask
 
     output = tf.cond(

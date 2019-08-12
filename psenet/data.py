@@ -120,8 +120,11 @@ class Dataset:
         bboxes = sample[config.BBOXES]
 
         if self.should_augment:
-            image = preprocess.random_scale(image, self.resize_length)
-        image = preprocess.scale(image, self.resize_length)
+            image = preprocess.random_scale(
+                image,
+                resize_length=self.resize_length,
+                crop_size=self.crop_size,
+            )
         image_shape = tf.shape(image)
         height = image_shape[0]
         width = image_shape[1]

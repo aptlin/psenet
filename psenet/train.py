@@ -83,7 +83,6 @@ def build_optimizer(params):
             staircase=True,
         ),
         momentum=config.MOMENTUM,
-        use_nesterov=True,
     )
 
 
@@ -100,6 +99,7 @@ def build_model(params):
         encoder_weights=params.encoder_weights,
         encoder_features="default",
         pyramid_block_filters=256,
+        segmentation_filters=256,
         pyramid_use_batchnorm=True,
         pyramid_aggregation="concat",
         pyramid_dropout=None,
@@ -135,42 +135,7 @@ def model_fn(features, labels, mode, params):
             "kernel_loss", kernel_loss, family="losses"
         )
         tf.compat.v1.summary.scalar("total_loss", total_loss, family="losses")
-        kernel_metrics_type = config.KERNEL_METRICS
-        kernel_overall_accuracy = metrics.overall_accuracy(
-            labels, predictions, masks, kernel_metrics_type
-        )
-        kernel_mean_accuracy = metrics.mean_accuracy(
-            labels, predictions, masks, kernel_metrics_type
-        )
-        kernel_mean_iou = metrics.mean_iou(
-            labels, predictions, masks, kernel_metrics_type
-        )
-        kernel_fwaccuracy = metrics.frequency_weighted_accuracy(
-            labels, predictions, masks, kernel_metrics_type
-        )
-        text_metrics_type = config.TEXT_METRICS
-        text_overall_accuracy = metrics.overall_accuracy(
-            labels, predictions, masks, text_metrics_type
-        )
-        text_mean_accuracy = metrics.mean_accuracy(
-            labels, predictions, masks, text_metrics_type
-        )
-        text_mean_iou = metrics.mean_iou(
-            labels, predictions, masks, text_metrics_type
-        )
-        text_fwaccuracy = metrics.frequency_weighted_accuracy(
-            labels, predictions, masks, text_metrics_type
-        )
-        computed_metrics = {
-            "kernel_overall_accuracy": kernel_overall_accuracy,
-            "kernel_mean_accuracy": kernel_mean_accuracy,
-            "kernel_mean_iou": kernel_mean_iou,
-            "kernel_fwaccuracy": kernel_fwaccuracy,
-            "text_overall_accuracy": text_overall_accuracy,
-            "text_mean_accuracy": text_mean_accuracy,
-            "text_mean_iou": text_mean_iou,
-            "text_fwaccuracy": text_fwaccuracy,
-        }
+        computed_metrics = metrics.build_metrics(labels, predictions, masks)
         for metric_name, op in computed_metrics.items():
             tf.compat.v1.summary.scalar(metric_name, op[1])
 
@@ -194,63 +159,12 @@ def model_fn(features, labels, mode, params):
             "kernel_loss", kernel_loss, family="losses"
         )
         tf.compat.v1.summary.scalar("total_loss", total_loss, family="losses")
-        kernel_metrics_type = "kernel_metrics"
-        kernel_overall_accuracy = metrics.overall_accuracy(
-            labels, predictions, masks, kernel_metrics_type
-        )
-        kernel_mean_accuracy = metrics.mean_accuracy(
-            labels, predictions, masks, kernel_metrics_type
-        )
-        kernel_mean_iou = metrics.mean_iou(
-            labels, predictions, masks, kernel_metrics_type
-        )
-        kernel_fwaccuracy = metrics.frequency_weighted_accuracy(
-            labels, predictions, masks, kernel_metrics_type
-        )
-        text_metrics_type = "text_metrics"
-        text_overall_accuracy = metrics.overall_accuracy(
-            labels, predictions, masks, text_metrics_type
-        )
-        text_mean_accuracy = metrics.mean_accuracy(
-            labels, predictions, masks, text_metrics_type
-        )
-        text_mean_iou = metrics.mean_iou(
-            labels, predictions, masks, text_metrics_type
-        )
-        text_fwaccuracy = metrics.frequency_weighted_accuracy(
-            labels, predictions, masks, text_metrics_type
-        )
-        computed_metrics = {
-            "kernel_overall_accuracy": kernel_overall_accuracy,
-            "kernel_mean_accuracy": kernel_mean_accuracy,
-            "kernel_mean_iou": kernel_mean_iou,
-            "kernel_fwaccuracy": kernel_fwaccuracy,
-            "text_overall_accuracy": text_overall_accuracy,
-            "text_mean_accuracy": text_mean_accuracy,
-            "text_mean_iou": text_mean_iou,
-            "text_fwaccuracy": text_fwaccuracy,
-        }
+        computed_metrics = metrics.build_metrics(labels, predictions, masks)
         return tf.estimator.EstimatorSpec(
             mode=tf.estimator.ModeKeys.EVAL,
             loss=total_loss,
             eval_metric_ops=computed_metrics,
         )
-
-
-def init_estimator():
-    params = tf.contrib.training.HParams(
-        kernel_num=7,
-        backbone_name=config.BACKBONE_NAME,
-        encoder_weights="imagenet",
-        decay_rate=config.LEARNING_RATE_DECAY_FACTOR,
-        decay_steps=config.LEARNING_RATE_DECAY_STEPS,
-        learning_rate=config.LEARNING_RATE,
-    )
-
-    estimator = tf.estimator.Estimator(
-        model_fn=model_fn, model_dir=config.MODEL_DIR, params=params
-    )
-    return estimator
 
 
 def train(FLAGS):
@@ -387,7 +301,7 @@ if __name__ == "__main__":
     )
     PARSER.add_argument(
         "--crop-size",
-        help="The size of the square for a random background crop",
+        help="The size of the square for a crop",
         default=config.CROP_SIZE,
         type=int,
     )

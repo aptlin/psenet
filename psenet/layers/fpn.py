@@ -99,6 +99,7 @@ def build_fpn(
     aggregation="sum",
     dropout=None,
     weight_decay=None,
+    upsample_to_input=False,
 ):
     inputs = backbone.input
     outputs = backbone.output
@@ -206,6 +207,8 @@ def build_fpn(
         if weight_decay
         else None,
     )(outputs)
+    # if upsample_to_input:
+
     outputs = tf.keras.layers.Activation(activation, name=activation)(outputs)
 
     # create keras model instance
@@ -229,10 +232,12 @@ def FPN(
     encoder_weights="imagenet",
     encoder_features="default",
     pyramid_block_filters=256,
+    segmentation_filters=256,
     pyramid_use_batchnorm=True,
     pyramid_aggregation="concat",
     pyramid_dropout=None,
     weight_decay=None,
+    upsample_to_input=False,
 ):
     if backbone_name and not backbone:
         backbone = Backbones.get_backbone(
@@ -249,13 +254,14 @@ def FPN(
         backbone=backbone,
         skip_connection_layers=encoder_features,
         pyramid_filters=pyramid_block_filters,
-        segmentation_filters=pyramid_block_filters // 2,
+        segmentation_filters=segmentation_filters,
         use_batchnorm=pyramid_use_batchnorm,
         dropout=pyramid_dropout,
         activation=activation,
         classes=classes,
         aggregation=pyramid_aggregation,
         weight_decay=weight_decay,
+        upsample_to_input=upsample_to_input,
     )
 
     if weights is not None:

@@ -88,6 +88,43 @@ def overall_accuracy(
     )
 
 
+def precision(labels, predictions, masks, metric_type, epsilon=config.EPSILON):
+    confusion_matrix = compute_confusion_matrix(
+        labels, predictions, masks, metric_type
+    )
+    diagonal = tf.linalg.diag_part(confusion_matrix)
+    col_sum = tf.math.reduce_sum(confusion_matrix, axis=0)
+    precision = diagonal[0] / (col_sum[0] + epsilon)
+    return tf.metrics.mean(
+        precision, name="{}/{}".format(metric_type, "precision")
+    )
+
+
+def recall(labels, predictions, masks, metric_type, epsilon=config.EPSILON):
+    confusion_matrix = compute_confusion_matrix(
+        labels, predictions, masks, metric_type
+    )
+    diagonal = tf.linalg.diag_part(confusion_matrix)
+    row_sum = tf.math.reduce_sum(confusion_matrix, axis=1)
+    recall = diagonal[0] / (row_sum[0] + epsilon)
+    return tf.metrics.mean(recall, name="{}/{}".format(metric_type, "recall"))
+
+
+def f1_score(labels, predictions, masks, metric_type, epsilon=config.EPSILON):
+    confusion_matrix = compute_confusion_matrix(
+        labels, predictions, masks, metric_type
+    )
+    diagonal = tf.linalg.diag_part(confusion_matrix)
+    col_sum = tf.math.reduce_sum(confusion_matrix, axis=0)
+    row_sum = tf.math.reduce_sum(confusion_matrix, axis=1)
+    precision = diagonal[0] / (col_sum[0] + epsilon)
+    recall = diagonal[0] / (row_sum[0] + epsilon)
+    f1_score = 2 * precision * recall / (precision + recall + epsilon)
+    return tf.metrics.mean(
+        f1_score, name="{}/{}".format(metric_type, "f1_score")
+    )
+
+
 def mean_accuracy(
     labels, predictions, masks, metric_type, epsilon=config.EPSILON
 ):
@@ -135,3 +172,62 @@ def frequency_weighted_accuracy(
     return tf.metrics.mean(
         fwaccuracy, name="{}/{}".format(metric_type, "fwaccuracy")
     )
+
+
+def build_metrics(labels, predictions, masks):
+    kernel_metrics_type = config.KERNEL_METRICS
+    kernel_overall_accuracy = overall_accuracy(
+        labels, predictions, masks, kernel_metrics_type
+    )
+    kernel_mean_accuracy = mean_accuracy(
+        labels, predictions, masks, kernel_metrics_type
+    )
+    kernel_mean_iou = mean_iou(labels, predictions, masks, kernel_metrics_type)
+    kernel_fwaccuracy = frequency_weighted_accuracy(
+        labels, predictions, masks, kernel_metrics_type
+    )
+    kernel_precision = precision(
+        labels, predictions, masks, kernel_metrics_type
+    )
+    kernel_recall = recall(labels, predictions, masks, kernel_metrics_type)
+    kernel_f1_score = f1_score(labels, predictions, masks, kernel_metrics_type)
+
+    text_metrics_type = config.TEXT_METRICS
+    text_overall_accuracy = overall_accuracy(
+        labels, predictions, masks, text_metrics_type
+    )
+    text_mean_accuracy = mean_accuracy(
+        labels, predictions, masks, text_metrics_type
+    )
+    text_mean_iou = mean_iou(labels, predictions, masks, text_metrics_type)
+    text_fwaccuracy = frequency_weighted_accuracy(
+        labels, predictions, masks, text_metrics_type
+    )
+    text_precision = precision(labels, predictions, masks, text_metrics_type)
+    text_recall = recall(labels, predictions, masks, text_metrics_type)
+    text_f1_score = f1_score(labels, predictions, masks, text_metrics_type)
+
+    comuputed_metrics = {
+        "{}/kernel_overall_accuracy".format(
+            kernel_metrics_type
+        ): kernel_overall_accuracy,
+        "{}/kernel_mean_accuracy".format(
+            kernel_metrics_type
+        ): kernel_mean_accuracy,
+        "{}/kernel_mean_iou".format(kernel_metrics_type): kernel_mean_iou,
+        "{}/kernel_fwaccuracy".format(kernel_metrics_type): kernel_fwaccuracy,
+        "{}/kernel_precision".format(kernel_metrics_type): kernel_precision,
+        "{}/kernel_recall".format(kernel_metrics_type): kernel_recall,
+        "{}/kernel_f1_score".format(kernel_metrics_type): kernel_f1_score,
+        "{}/text_overall_accuracy".format(
+            text_metrics_type
+        ): text_overall_accuracy,
+        "{}/text_mean_accuracy".format(text_metrics_type): text_mean_accuracy,
+        "{}/text_mean_iou".format(text_metrics_type): text_mean_iou,
+        "{}/text_fwaccuracy".format(text_metrics_type): text_fwaccuracy,
+        "{}/text_precision".format(text_metrics_type): text_precision,
+        "{}/text_recall".format(text_metrics_type): text_recall,
+        "{}/text_f1_score".format(text_metrics_type): text_f1_score,
+    }
+
+    return comuputed_metrics
