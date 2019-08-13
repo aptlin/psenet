@@ -104,8 +104,7 @@ def compute_loss(labels, predictions, masks):
     # compute text loss
     text_masks = ohem_batch(ground_truth_texts, predicted_texts, masks)
     text_loss = tf.identity(
-        dice_loss(ground_truth_texts, predicted_texts, text_masks),
-        name="losses/text_loss",
+        dice_loss(ground_truth_texts, predicted_texts, text_masks)
     )
 
     # compute kernel loss
@@ -124,8 +123,7 @@ def compute_loss(labels, predictions, masks):
         )
 
     kernel_loss = tf.math.reduce_mean(
-        tf.map_fn(compute_kernel_loss, indices, dtype=tf.float32),
-        name="losses/kernel_loss",
+        tf.map_fn(compute_kernel_loss, indices, dtype=tf.float32)
     )
 
     current_loss = (
@@ -134,8 +132,7 @@ def compute_loss(labels, predictions, masks):
     )
 
     current_loss = tf.math.add_n(
-        [current_loss] + tf.losses.get_regularization_losses(),
-        name="losses/current_loss",
+        [current_loss] + tf.losses.get_regularization_losses()
     )
 
     return text_loss, kernel_loss, current_loss

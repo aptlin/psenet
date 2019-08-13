@@ -3,6 +3,7 @@ import os
 import cv2
 import numpy as np
 import tensorflow as tf
+from tensorflow.python.platform import tf_logging as logging
 
 import psenet.config as config
 import psenet.preprocess as preprocess
@@ -21,6 +22,7 @@ class Dataset:
         should_shuffle=False,
         should_repeat=False,
         should_augment=True,
+        input_context=None,
     ):
         self.dataset_dir = dataset_dir
         self.batch_size = batch_size
@@ -32,6 +34,7 @@ class Dataset:
         self.kernel_num = kernel_num
         self.crop_size = crop_size
         self.should_augment = should_augment
+        self.input_context = input_context
 
     def _parse_example(self, example_prototype):
         features = {
@@ -183,30 +186,46 @@ class Dataset:
         )
 
     def build(self):
-        files = self._get_all_tfrecords()
+        dataset = self._get_all_tfrecords()
+        if self.input_context:
+            dataset = dataset.shard(
+                self.input_context.num_input_pipelines,
+                self.input_context.input_pipeline_id,
+            )
+            logging.info(
+                "Sharding the dataset for the pipeline {} out of {}".format(
+                    self.input_context.input_pipeline_id,
+                    self.input_context.num_input_pipelines,
+                )
+            )
+        else:
+            logging.info("Received no input context.")
 
-        dataset = files.interleave(
-            tf.data.TFRecordDataset,
-            cycle_length=self.num_readers,
-            num_parallel_calls=self.num_readers,
-        )
-        dataset = dataset.map(
-            self._parse_example, num_parallel_calls=self.num_readers
-        )
-        dataset = dataset.map(
-            self._preprocess_example, num_parallel_calls=self.num_readers
-        )
-        dataset = dataset.filter(self._guarantee_validity)
+        if self.should_repeat:
+            dataset = dataset.repeat()
+        else:
+            dataset = dataset.repeat(1)
 
         if self.should_shuffle:
             dataset = dataset.shuffle(
                 buffer_size=config.NUM_BATCHES_TO_SHUFFLE * self.batch_size + 1
             )
 
-        if self.should_repeat:
-            dataset = dataset.repeat()
-        else:
-            dataset = dataset.repeat(1)
+        dataset = dataset.interleave(
+            tf.data.TFRecordDataset,
+            cycle_length=self.num_readers,
+            num_parallel_calls=self.num_readers,
+        )
+
+        dataset = dataset.map(
+            self._parse_example, num_parallel_calls=self.num_readers
+        )
+        dataset = dataset.map(
+            self._preprocess_example, num_parallel_calls=self.num_readers
+        )
+
+        dataset = dataset.filter(self._guarantee_validity)
+
         dataset = dataset.padded_batch(
             self.batch_size,
             padded_shapes=(
@@ -214,4 +233,5 @@ class Dataset:
                 [None, None, config.KERNEL_NUM],
             ),
         ).prefetch(8)
+
         return dataset

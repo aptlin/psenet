@@ -1,9 +1,11 @@
 import argparse
+import json
 import os
 import sys
 
 import tensorflow as tf
 from tensorflow.python.client import device_lib
+from tensorflow.python.platform import tf_logging as logging
 
 import psenet.config as config
 import psenet.data as data
@@ -13,7 +15,7 @@ from psenet.layers.fpn import FPN
 
 
 def build_dataset(mode, FLAGS):
-    def input_fn():
+    def input_fn(input_context=None):
         is_training = mode == tf.estimator.ModeKeys.TRAIN
 
         dataset_dir = (
@@ -25,12 +27,12 @@ def build_dataset(mode, FLAGS):
             resize_length=FLAGS.resize_length,
             min_scale=FLAGS.min_scale,
             kernel_num=FLAGS.kernel_num,
-            crop_size=FLAGS.crop_size,
+            crop_size=FLAGS.resize_length // 2,
             num_readers=FLAGS.readers_num,
             should_shuffle=is_training,
             should_repeat=True,
-            # should_augment=False
             should_augment=is_training,
+            input_context=input_context,
         ).build()
         return dataset
 
@@ -167,23 +169,26 @@ def model_fn(features, labels, mode, params):
         )
 
 
-def train(FLAGS):
-    # exporter = build_exporter()
+def train_and_evaluate(FLAGS):
+    exporter = build_exporter()
 
-    # train_spec = tf.estimator.TrainSpec(
-    #     input_fn=build_dataset(tf.estimator.ModeKeys.TRAIN, FLAGS),
-    #     max_steps=FLAGS.train_steps,
-    # )
+    train_spec = tf.estimator.TrainSpec(
+        input_fn=build_dataset(tf.estimator.ModeKeys.TRAIN, FLAGS),
+        max_steps=FLAGS.train_steps,
+    )
 
-    # eval_spec = tf.estimator.EvalSpec(
-    #     input_fn=build_dataset(tf.estimator.ModeKeys.EVAL, FLAGS),
-    #     exporters=exporter,
-    #     steps=FLAGS.eval_steps,
-    #     start_delay_secs=FLAGS.eval_start_delay_secs,
-    #     throttle_secs=FLAGS.eval_throttle_secs,
-    # )
+    eval_spec = tf.estimator.EvalSpec(
+        input_fn=build_dataset(tf.estimator.ModeKeys.EVAL, FLAGS),
+        exporters=exporter,
+        steps=FLAGS.eval_steps,
+        start_delay_secs=FLAGS.eval_start_delay_secs,
+        throttle_secs=FLAGS.eval_throttle_secs,
+    )
 
-    strategy = tf.distribute.MirroredStrategy()
+    if FLAGS.distribution_strategy == config.MIRRORED_STRATEGY:
+        strategy = tf.distribute.MirroredStrategy()
+    else:
+        strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy()
 
     params = tf.contrib.training.HParams(
         kernel_num=FLAGS.kernel_num,
@@ -203,13 +208,7 @@ def train(FLAGS):
         eval_distribute=strategy,
         session_config=tf.ConfigProto(
             allow_soft_placement=True,
-            gpu_options=tf.GPUOptions(
-                visible_device_list=",".join(
-                    [str(i) for i in range(FLAGS.gpus_num)]
-                ),
-                allow_growth=True,
-            ),
-            device_count={"GPU": FLAGS.gpus_num},
+            gpu_options=tf.GPUOptions(allow_growth=True),
         ),
     )
 
@@ -223,11 +222,11 @@ def train(FLAGS):
         ),
     )
 
-    # tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
-    estimator.train(
-        input_fn=build_dataset(tf.estimator.ModeKeys.TRAIN, FLAGS),
-        max_steps=FLAGS.train_steps,
-    )
+    tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
+    # estimator.train(
+    #     input_fn=build_dataset(tf.estimator.ModeKeys.TRAIN, FLAGS),
+    #     max_steps=FLAGS.train_steps,
+    # )
 
 
 if __name__ == "__main__":
@@ -300,21 +299,15 @@ if __name__ == "__main__":
         type=int,
     )
     PARSER.add_argument(
-        "--crop-size",
-        help="The size of the square for a crop",
-        default=config.CROP_SIZE,
-        type=int,
-    )
-    PARSER.add_argument(
         "--readers-num",
         help="The number of parallel readers",
         default=config.NUM_READERS,
         type=int,
     )
     PARSER.add_argument(
-        "--gpus-num",
+        "--gpu-per-worker",
         help="The number of GPUs to use",
-        default=config.GPUS_NUM,
+        default=config.GPU_PER_WORKER,
         type=int,
     )
     PARSER.add_argument(
@@ -378,21 +371,45 @@ if __name__ == "__main__":
         default=config.EVAL_THROTTLE_SECS,
         type=int,
     )
+    PARSER.add_argument(
+        "--distribution-strategy",
+        help="The distribution strategy to use. "
+        + "Either `mirrored` or `multi-worker-mirrored`.",
+        default=config.MIRRORED_STRATEGY,
+        type=str,
+    )
 
     FLAGS, _ = PARSER.parse_known_args()
     tf.compat.v1.logging.set_verbosity("DEBUG")
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(
-        [str(i) for i in range(FLAGS.gpus_num)]
-    )
-    os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 
-    if FLAGS.gpus_num > 0:
+    if FLAGS.distribution_strategy == config.MULTIWORKER_MIRRORED_STRATEGY:
+        tf_config = json.loads(os.environ.get("TF_CONFIG", "{}"))
+        if (
+            "task" in tf_config
+            and "type" in tf_config["task"] and
+            tf_config["task"]["type"] == "master"
+        ):
+            tf_config["task"]["type"] = "chief"
+        if ("cluster" in tf_config and "master" in tf_config["cluster"]):
+            master_cluster = tf_config["cluster"].pop("master")
+            tf_config["cluster"]["chief"] = master_cluster
+        os.environ["TF_CONFIG"] = json.dumps(tf_config)
+        logging.info(
+            "Changed the config to {}".format(
+                json.loads(os.environ.get("TF_CONFIG", "{}"))
+            )
+        )
+    elif FLAGS.distribution_strategy != config.MIRRORED_STRATEGY:
+        raise ValueError("Got an unexpected distribution strategy, aborting.")
+    if FLAGS.gpu_per_worker > 0:
         if tf.test.gpu_device_name():
-            print("Default GPU: {}".format(tf.test.gpu_device_name()))
-            print("All Devices:\n {}".format(device_lib.list_local_devices()))
+            logging.info("Default GPU: {}".format(tf.test.gpu_device_name()))
+            logging.info(
+                "All Devices: {}".format(device_lib.list_local_devices())
+            )
         else:
-            print("Failed to find default GPU.")
+            logging.error("Failed to find the default GPU.")
             sys.exit(1)
 
-    train(FLAGS)
+    train_and_evaluate(FLAGS)
