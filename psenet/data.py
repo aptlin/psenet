@@ -23,6 +23,7 @@ class Dataset:
         should_repeat=False,
         should_augment=True,
         input_context=None,
+        prefetch=config.PREFETCH,
     ):
         self.dataset_dir = dataset_dir
         self.batch_size = batch_size
@@ -35,6 +36,7 @@ class Dataset:
         self.crop_size = crop_size
         self.should_augment = should_augment
         self.input_context = input_context
+        self.prefetch = prefetch
 
     def _parse_example(self, example_prototype):
         features = {
@@ -126,6 +128,7 @@ class Dataset:
                 resize_length=self.resize_length,
                 crop_size=self.crop_size,
             )
+        image = preprocess.scale(image, resize_length=self.resize_length)
         image_shape = tf.shape(image)
         height = image_shape[0]
         width = image_shape[1]
@@ -232,6 +235,35 @@ class Dataset:
                 {config.IMAGE: [None, None, 3], config.MASK: [None, None]},
                 [None, None, config.KERNEL_NUM],
             ),
-        ).prefetch(8)
+        ).prefetch(self.prefetch)
 
         return dataset
+
+
+def build_dataset(mode, FLAGS):
+    def input_fn(input_context=None):
+        is_training = mode == tf.estimator.ModeKeys.TRAIN
+        if FLAGS.augment_training_data:
+            should_augment = is_training
+        else:
+            should_augment = False
+        dataset_dir = (
+            FLAGS.training_data_dir if is_training else FLAGS.eval_data_dir
+        )
+        dataset = Dataset(
+            dataset_dir,
+            FLAGS.batch_size,
+            resize_length=FLAGS.resize_length,
+            min_scale=FLAGS.min_scale,
+            kernel_num=FLAGS.kernel_num,
+            crop_size=FLAGS.resize_length // 2,
+            num_readers=FLAGS.readers_num,
+            should_shuffle=is_training,
+            should_repeat=True,
+            should_augment=should_augment,
+            input_context=input_context,
+            prefetch=FLAGS.prefetch,
+        ).build()
+        return dataset
+
+    return input_fn

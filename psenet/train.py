@@ -1,185 +1,28 @@
 import argparse
 import json
 import os
-import sys
 
 import tensorflow as tf
 from tensorflow.python.client import device_lib
 from tensorflow.python.platform import tf_logging as logging
 
-import psenet.config as config
-import psenet.data as data
-import psenet.losses as losses
-import psenet.metrics as metrics
-from psenet.layers.fpn import FPN
-
-
-def build_dataset(mode, FLAGS):
-    def input_fn(input_context=None):
-        is_training = mode == tf.estimator.ModeKeys.TRAIN
-
-        dataset_dir = (
-            FLAGS.training_data_dir if is_training else FLAGS.eval_data_dir
-        )
-        dataset = data.Dataset(
-            dataset_dir,
-            FLAGS.batch_size,
-            resize_length=FLAGS.resize_length,
-            min_scale=FLAGS.min_scale,
-            kernel_num=FLAGS.kernel_num,
-            crop_size=FLAGS.resize_length // 2,
-            num_readers=FLAGS.readers_num,
-            should_shuffle=is_training,
-            should_repeat=True,
-            should_augment=is_training,
-            input_context=input_context,
-        ).build()
-        return dataset
-
-    return input_fn
-
-
-def build_exporter():
-    def serving_input_fn():
-        features = {
-            config.IMAGE: tf.compat.v1.placeholder(
-                dtype=tf.float32, shape=[None, None, None, 3]
-            ),
-            config.MASK: tf.compat.v1.placeholder(
-                dtype=tf.float32, shape=[None, None, None]
-            ),
-        }
-        receiver_tensors = {
-            config.IMAGE: tf.compat.v1.placeholder(
-                dtype=tf.float32, shape=[None, None, None, 3]
-            ),
-            config.MASK: tf.compat.v1.placeholder(
-                dtype=tf.float32, shape=[None, None, None]
-            ),
-        }
-        return tf.estimator.export.ServingInputReceiver(
-            features, receiver_tensors
-        )
-
-    return tf.estimator.LatestExporter(
-        name="exporter", serving_input_receiver_fn=serving_input_fn
-    )
-
-
-def build_optimizer(params):
-    # return tf.train.AdamOptimizer(
-    #     learning_rate=tf.compat.v1.train.exponential_decay(
-    #         learning_rate=params.learning_rate,
-    #         global_step=tf.train.get_or_create_global_step(),
-    #         decay_steps=params.decay_steps,
-    #         decay_rate=params.decay_rate,
-    #         staircase=True,
-    #     )
-    # )
-    return tf.train.MomentumOptimizer(
-        learning_rate=tf.compat.v1.train.exponential_decay(
-            learning_rate=params.learning_rate,
-            global_step=tf.train.get_or_create_global_step(),
-            decay_steps=params.decay_steps,
-            decay_rate=params.decay_rate,
-            staircase=True,
-        ),
-        momentum=config.MOMENTUM,
-    )
-
-
-def build_model(params):
-    images = tf.keras.Input(
-        shape=[None, None, 3], name=config.IMAGE, dtype=tf.float32
-    )
-    kernels = FPN(
-        backbone_name=params.backbone_name,
-        input_shape=(None, None, 3),
-        classes=params.kernel_num,
-        activation="sigmoid",
-        weights=None,
-        encoder_weights=params.encoder_weights,
-        encoder_features="default",
-        pyramid_block_filters=256,
-        segmentation_filters=128,
-        pyramid_use_batchnorm=True,
-        pyramid_aggregation="concat",
-        pyramid_dropout=None,
-        weight_decay=params.regularization_weight_decay,
-    )(images)
-
-    return tf.keras.Model(inputs={config.IMAGE: images}, outputs=kernels)
-
-
-def model_fn(features, labels, mode, params):
-    if mode == tf.estimator.ModeKeys.PREDICT:
-        model = build_model(params)
-        predictions = model(features[config.IMAGE], training=False)
-        predictions = {"kernels": predictions}
-        return tf.estimator.EstimatorSpec(
-            mode=tf.estimator.ModeKeys.PREDICT,
-            predictions=predictions,
-            export_outputs={
-                "detect": tf.estimator.export.PredictOutput(predictions)
-            },
-        )
-    if mode == tf.estimator.ModeKeys.TRAIN:
-        model = build_model(params)
-        optimizer = build_optimizer(params)
-
-        predictions = model(features[config.IMAGE], training=True)
-        masks = features[config.MASK]
-        text_loss, kernel_loss, total_loss = losses.compute_loss(
-            labels, predictions, masks
-        )
-        tf.compat.v1.summary.scalar("text_loss", text_loss, family="losses")
-        tf.compat.v1.summary.scalar(
-            "kernel_loss", kernel_loss, family="losses"
-        )
-        tf.compat.v1.summary.scalar("total_loss", total_loss, family="losses")
-        computed_metrics = metrics.build_metrics(labels, predictions, masks)
-        for metric_name, op in computed_metrics.items():
-            tf.compat.v1.summary.scalar(metric_name, op[1])
-
-        return tf.estimator.EstimatorSpec(
-            mode=tf.estimator.ModeKeys.TRAIN,
-            loss=total_loss,
-            train_op=optimizer.minimize(
-                total_loss, tf.train.get_or_create_global_step()
-            ),
-        )
-
-    if mode == tf.estimator.ModeKeys.EVAL:
-        model = build_model(params)
-        predictions = model(features[config.IMAGE], training=False)
-        masks = features[config.MASK]
-        text_loss, kernel_loss, total_loss = losses.compute_loss(
-            labels, predictions, masks
-        )
-        tf.compat.v1.summary.scalar("text_loss", text_loss, family="losses")
-        tf.compat.v1.summary.scalar(
-            "kernel_loss", kernel_loss, family="losses"
-        )
-        tf.compat.v1.summary.scalar("total_loss", total_loss, family="losses")
-        computed_metrics = metrics.build_metrics(labels, predictions, masks)
-        return tf.estimator.EstimatorSpec(
-            mode=tf.estimator.ModeKeys.EVAL,
-            loss=total_loss,
-            eval_metric_ops=computed_metrics,
-        )
+from psenet import config
+from psenet.data import build_dataset
+from psenet.model import model_fn
+from psenet.eval import build_eval_exporter
 
 
 def train_and_evaluate(FLAGS):
-    exporter = build_exporter()
 
     train_spec = tf.estimator.TrainSpec(
         input_fn=build_dataset(tf.estimator.ModeKeys.TRAIN, FLAGS),
         max_steps=FLAGS.train_steps,
     )
 
+    eval_exporter = build_eval_exporter()
     eval_spec = tf.estimator.EvalSpec(
         input_fn=build_dataset(tf.estimator.ModeKeys.EVAL, FLAGS),
-        exporters=exporter,
+        exporters=eval_exporter,
         steps=FLAGS.eval_steps,
         start_delay_secs=FLAGS.eval_start_delay_secs,
         throttle_secs=FLAGS.eval_throttle_secs,
@@ -202,13 +45,20 @@ def train_and_evaluate(FLAGS):
 
     run_config = tf.estimator.RunConfig(
         model_dir=FLAGS.job_dir,
-        save_checkpoints_secs=FLAGS.save_checkpoints_secs,
+        save_checkpoints_steps=FLAGS.save_checkpoints_steps,
         save_summary_steps=FLAGS.save_summary_steps,
         train_distribute=strategy,
         eval_distribute=strategy,
+        keep_checkpoint_max=5,
         session_config=tf.ConfigProto(
             allow_soft_placement=True,
-            gpu_options=tf.GPUOptions(allow_growth=True),
+            device_count={"GPU": FLAGS.gpu_per_worker},
+            gpu_options=tf.GPUOptions(
+                allow_growth=True,
+                visible_device_list=",".join(
+                    [str(i) for i in range(FLAGS.gpu_per_worker)]
+                ),
+            ),
         ),
     )
 
@@ -311,6 +161,12 @@ if __name__ == "__main__":
         type=int,
     )
     PARSER.add_argument(
+        "--prefetch",
+        help="The number of batches to prefetch",
+        default=config.PREFETCH,
+        type=int,
+    )
+    PARSER.add_argument(
         "--min-scale",
         help="The minimum kernel scale for pre-processing",
         default=config.LEARNING_RATE_DECAY_FACTOR,
@@ -341,9 +197,9 @@ if __name__ == "__main__":
         type=int,
     )
     PARSER.add_argument(
-        "--save-checkpoints-secs",
-        help="Save checkpoints every this many seconds",
-        default=config.SAVE_CHECKPOINTS_SECS,
+        "--save-checkpoints-steps",
+        help="Save checkpoints every this many steps",
+        default=config.SAVE_CHECKPOINTS_STEPS,
         type=int,
     )
     PARSER.add_argument(
@@ -378,20 +234,32 @@ if __name__ == "__main__":
         default=config.MIRRORED_STRATEGY,
         type=str,
     )
+    PARSER.add_argument(
+        "--augment-training-data",
+        help="Whether to augment training data.",
+        type=config.str2bool,
+        nargs="?",
+        const=True,
+        default=True,
+    )
 
     FLAGS, _ = PARSER.parse_known_args()
     tf.compat.v1.logging.set_verbosity("DEBUG")
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(
+        [str(i) for i in range(FLAGS.gpu_per_worker)]
+    )
+    os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 
     if FLAGS.distribution_strategy == config.MULTIWORKER_MIRRORED_STRATEGY:
         tf_config = json.loads(os.environ.get("TF_CONFIG", "{}"))
         if (
             "task" in tf_config
-            and "type" in tf_config["task"] and
-            tf_config["task"]["type"] == "master"
+            and "type" in tf_config["task"]
+            and tf_config["task"]["type"] == "master"
         ):
             tf_config["task"]["type"] = "chief"
-        if ("cluster" in tf_config and "master" in tf_config["cluster"]):
+        if "cluster" in tf_config and "master" in tf_config["cluster"]:
             master_cluster = tf_config["cluster"].pop("master")
             tf_config["cluster"]["chief"] = master_cluster
         os.environ["TF_CONFIG"] = json.dumps(tf_config)
@@ -402,6 +270,7 @@ if __name__ == "__main__":
         )
     elif FLAGS.distribution_strategy != config.MIRRORED_STRATEGY:
         raise ValueError("Got an unexpected distribution strategy, aborting.")
+
     if FLAGS.gpu_per_worker > 0:
         if tf.test.gpu_device_name():
             logging.info("Default GPU: {}".format(tf.test.gpu_device_name()))
@@ -409,7 +278,6 @@ if __name__ == "__main__":
                 "All Devices: {}".format(device_lib.list_local_devices())
             )
         else:
-            logging.error("Failed to find the default GPU.")
-            sys.exit(1)
+            raise RuntimeError("Failed to find the default GPU.")
 
     train_and_evaluate(FLAGS)

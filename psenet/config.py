@@ -1,3 +1,5 @@
+import argparse
+
 BACKBONE_NAME = "mobilenetv2"
 BATCH_SIZE = 1
 BBOX_SIZE = 8
@@ -33,14 +35,14 @@ MOMENTUM = 0.99
 MULTIWORKER_MIRRORED_STRATEGY = "multi-worker-mirrored"
 N_EPOCHS = 600
 N_EVAL_STEPS = 5
-NUM_BATCHES_TO_SHUFFLE = 8
+NUM_BATCHES_TO_SHUFFLE = 4
 NUM_READERS = 1
 NUMBER_OF_BBOXES = "number_of_bboxes"
 RAW_EVAL_DATA_DIR = "./dist/mlt/eval"
 RAW_TRAINING_DATA_DIR = "./dist/mlt/train"
 REGULARIZATION_WEIGHT_DECAY = 5e-4
 RESIZE_LENGTH = 1280
-SAVE_CHECKPOINTS_SECS = 60
+SAVE_CHECKPOINTS_STEPS = 5
 SAVE_SUMMARY_STEPS = 1
 TAGS = "tags"
 TEXT = "text"
@@ -49,3 +51,16 @@ TEXT_METRICS = "text-metrics"
 TRAINING_DATA_DIR = "./dist/mlt/tfrecords/train"
 WARM_CHECKPOINT = "./dist/warm/segmentation_filters_128"
 WIDTH = "width"
+PREFETCH = 1
+SAVED_MODEL_DIR = "./dist/psenet/saved_model"
+
+
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ("yes", "true", "t", "y", "1"):
+        return True
+    elif v.lower() in ("no", "false", "f", "n", "0"):
+        return False
+    else:
+        raise argparse.ArgumentTypeError("Boolean value expected.")
