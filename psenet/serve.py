@@ -4,30 +4,9 @@ from psenet.model import model_fn
 import argparse
 
 
-def build_serving_exporter():
-    def serving_input_fn():
-        features = {
-            config.IMAGE: tf.compat.v1.placeholder(
-                dtype=tf.float32, shape=[None, None, None, 3]
-            )
-        }
-        receiver_tensors = {
-            config.IMAGE: tf.compat.v1.placeholder(
-                dtype=tf.float32, shape=[None, None, None, 3]
-            )
-        }
-        return tf.estimator.export.ServingInputReceiver(
-            features, receiver_tensors
-        )
-
-    return serving_input_fn
-
-
 def build_eval_estimator(FLAGS):
     params = tf.contrib.training.HParams(
-        kernel_num=7,
-        backbone_name=FLAGS.backbone_name,
-        encoder_weights=None,
+        kernel_num=7, backbone_name=FLAGS.backbone_name, encoder_weights=None
     )
 
     estimator = tf.estimator.Estimator(
@@ -37,9 +16,18 @@ def build_eval_estimator(FLAGS):
 
 
 def export_saved_model(FLAGS):
-    serving_exporter = build_serving_exporter()
+    features = {
+        config.IMAGE: tf.compat.v1.placeholder(
+            dtype=tf.float32, shape=[None, None, None, 3], name=config.IMAGE
+        )
+    }
     estimator = build_eval_estimator(FLAGS)
-    estimator.export_saved_model(FLAGS.target_dir, serving_exporter)
+    estimator.export_saved_model(
+        FLAGS.target_dir,
+        tf.estimator.export.build_raw_serving_input_receiver_fn(
+            features, default_batch_size=None
+        ),
+    )
 
 
 if __name__ == "__main__":

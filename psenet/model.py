@@ -57,7 +57,8 @@ def build_optimizer(params):
 def model_fn(features, labels, mode, params):
     if mode == tf.estimator.ModeKeys.PREDICT:
         model = build_model(params)
-        predictions = model(features[config.IMAGE], training=False)
+        image = features[config.IMAGE]
+        predictions = model(image, training=False)
         predictions = {config.KERNELS: predictions}
         return tf.estimator.EstimatorSpec(
             mode=tf.estimator.ModeKeys.PREDICT,
