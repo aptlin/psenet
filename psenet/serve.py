@@ -47,17 +47,17 @@ if __name__ == "__main__":
     PARSER.add_argument(
         "--backbone-name",
         help="""The name of the FPN backbone. Must be one of the following:
-                - 'inceptionresnetv2',
-                - 'inceptionv3',
-                - 'resnext50',
-                - 'resnext101',
-                - 'mobilenet',
-                - 'mobilenetv2',
-                - 'efficientnetb0',
-                - 'efficientnetb1',
-                - 'efficientnetb2',
-                - 'efficientnetb3',
-                - 'efficientnetb4',
+                - 'inceptionresnetv2'
+                - 'inceptionv3'
+                - 'resnext50'
+                - 'resnext101'
+                - 'mobilenet'
+                - 'mobilenetv2'
+                - 'efficientnetb0'
+                - 'efficientnetb1'
+                - 'efficientnetb2'
+                - 'efficientnetb3'
+                - 'efficientnetb4'
                 - 'efficientnetb5'
         """,
         default=config.BACKBONE_NAME,
