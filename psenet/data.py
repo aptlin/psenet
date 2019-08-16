@@ -4,7 +4,6 @@ import cv2
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.platform import tf_logging as logging
-
 import psenet.config as config
 import psenet.preprocess as preprocess
 
@@ -128,7 +127,6 @@ class Dataset:
                 resize_length=self.resize_length,
                 crop_size=self.crop_size,
             )
-        image = preprocess.scale(image, resize_length=self.resize_length)
         image_shape = tf.shape(image)
         height = image_shape[0]
         width = image_shape[1]

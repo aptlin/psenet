@@ -1,6 +1,7 @@
 import argparse
 
 BACKBONE_NAME = "mobilenetv2"
+BASE_DATA_DIR = "./dist/mlt/tfrecords"
 BATCH_SIZE = 1
 BBOX_SIZE = 8
 BBOXES = "bboxes"
@@ -38,21 +39,21 @@ N_EVAL_STEPS = 5
 NUM_BATCHES_TO_SHUFFLE = 4
 NUM_READERS = 1
 NUMBER_OF_BBOXES = "number_of_bboxes"
+PREFETCH = 1
 RAW_EVAL_DATA_DIR = "./dist/mlt/eval"
 RAW_TRAINING_DATA_DIR = "./dist/mlt/train"
 REGULARIZATION_WEIGHT_DECAY = 5e-4
 RESIZE_LENGTH = 1280
 SAVE_CHECKPOINTS_STEPS = 5
 SAVE_SUMMARY_STEPS = 1
+SAVED_MODEL_DIR = "./dist/psenet/saved_model"
 TAGS = "tags"
 TEXT = "text"
 TEXT_LOSS_WEIGHT = 0.7
 TEXT_METRICS = "text-metrics"
-TRAINING_DATA_DIR = "./dist/mlt/tfrecords/train"
+TRAINING_DATA_DIR = BASE_DATA_DIR "train"
 WARM_CHECKPOINT = "./dist/warm/segmentation_filters_128"
 WIDTH = "width"
-PREFETCH = 1
-SAVED_MODEL_DIR = "./dist/psenet/saved_model"
 
 
 def str2bool(v):

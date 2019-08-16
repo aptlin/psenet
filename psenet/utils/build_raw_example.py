@@ -15,14 +15,8 @@ The Example proto contains the following fields:
 from collections.abc import Iterable
 import six
 import tensorflow as tf
-from absl import flags
 from psenet import config
 
-FLAGS = flags.FLAGS
-
-flags.DEFINE_enum(
-    "image_format", "jpg", ["jpg", "jpeg", "JPG"], "Image format."
-)
 
 # A map from image format to expected data format.
 _IMAGE_FORMAT_MAP = {
@@ -153,9 +147,6 @@ def labelled_image_to_tfexample(
             feature={
                 "image/encoded": _bytes_list_feature(image_data),
                 "image/filename": _bytes_list_feature(filename),
-                "image/format": _bytes_list_feature(
-                    _IMAGE_FORMAT_MAP[FLAGS.image_format]
-                ),
                 "image/height": _int64_list_feature(height),
                 "image/width": _int64_list_feature(width),
                 "image/text/tags/encoded": _bytes_list_feature(tags),
