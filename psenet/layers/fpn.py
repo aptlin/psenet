@@ -28,11 +28,11 @@ from psenet.layers.common import Conv2dBn
 from psenet.backbones.factory import Backbones
 
 
-def Conv3x3BnReLU(filters, use_batchnorm, name=None, weight_decay=None):
+def Conv1x1BnReLU(filters, use_batchnorm, name=None, weight_decay=None):
     def wrapper(input_tensor):
         return Conv2dBn(
             filters,
-            kernel_size=3,
+            kernel_size=1,
             activation="relu",
             kernel_initializer="he_uniform",
             padding="same",
@@ -42,24 +42,6 @@ def Conv3x3BnReLU(filters, use_batchnorm, name=None, weight_decay=None):
             if weight_decay
             else None,
         )(input_tensor)
-
-    return wrapper
-
-
-def DoubleConv3x3BnReLU(filters, use_batchnorm, name=None, weight_decay=None):
-    name1, name2 = None, None
-    if name is not None:
-        name1 = name + "a"
-        name2 = name + "b"
-
-    def wrapper(input_tensor):
-        x = Conv3x3BnReLU(
-            filters, use_batchnorm, name=name1, weight_decay=weight_decay
-        )(input_tensor)
-        x = Conv3x3BnReLU(
-            filters, use_batchnorm, name=name2, weight_decay=weight_decay
-        )(x)
-        return x
 
     return wrapper
 
@@ -151,44 +133,17 @@ def build_fpn(
         p3, skips[3]
     )
 
-    # add segmentation head to each
-    s5 = DoubleConv3x3BnReLU(
-        segmentation_filters,
-        use_batchnorm,
-        name="segm_stage5",
-        weight_decay=weight_decay,
-    )(p5)
-    s4 = DoubleConv3x3BnReLU(
-        segmentation_filters,
-        use_batchnorm,
-        name="segm_stage4",
-        weight_decay=weight_decay,
-    )(p4)
-    s3 = DoubleConv3x3BnReLU(
-        segmentation_filters,
-        use_batchnorm,
-        name="segm_stage3",
-        weight_decay=weight_decay,
-    )(p3)
-    s2 = DoubleConv3x3BnReLU(
-        segmentation_filters,
-        use_batchnorm,
-        name="segm_stage2",
-        weight_decay=weight_decay,
-    )(p2)
-
-    # upsampling to same resolution
     s5 = tf.keras.layers.UpSampling2D(
         (8, 8), interpolation="nearest", name="upsampling_stage5"
-    )(s5)
+    )(p5)
     s4 = tf.keras.layers.UpSampling2D(
         (4, 4), interpolation="nearest", name="upsampling_stage4"
-    )(s4)
+    )(p4)
     s3 = tf.keras.layers.UpSampling2D(
         (2, 2), interpolation="nearest", name="upsampling_stage3"
-    )(s3)
+    )(p3)
+    s2 = p2
 
-    # aggregating results
     if aggregation == "sum":
         outputs = tf.keras.layers.Add(name="aggregation_sum")([s2, s3, s4, s5])
     elif aggregation == "concat":
@@ -209,8 +164,7 @@ def build_fpn(
             dropout, name="pyramid_dropout"
         )(outputs)
 
-    # final stage
-    outputs = Conv3x3BnReLU(
+    outputs = Conv1x1BnReLU(
         segmentation_filters,
         use_batchnorm,
         name="final_stage",
@@ -220,7 +174,6 @@ def build_fpn(
         size=(2, 2), interpolation="bilinear", name="final_upsampling"
     )(outputs)
 
-    # model head (define number of output classes)
     outputs = tf.keras.layers.Conv2D(
         filters=classes,
         kernel_size=(3, 3),
@@ -232,11 +185,9 @@ def build_fpn(
         if weight_decay
         else None,
     )(outputs)
-    # if upsample_to_input:
 
     outputs = tf.keras.layers.Activation(activation, name=activation)(outputs)
 
-    # create keras model instance
     model = tf.keras.Model(inputs, outputs)
 
     return model
