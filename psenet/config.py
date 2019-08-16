@@ -7,7 +7,7 @@ BBOX_SIZE = 8
 BBOXES = "bboxes"
 CROP_SIZE = 320
 EPSILON = 1e-4
-EVAL_DATA_DIR = "./dist/mlt/tfrecords/eval"
+EVAL_DATA_DIR = BASE_DATA_DIR + "/eval"
 EVAL_START_DELAY_SECS = 10
 EVAL_THROTTLE_SECS = 120
 GPU_PER_WORKER = 0
@@ -51,7 +51,7 @@ TAGS = "tags"
 TEXT = "text"
 TEXT_LOSS_WEIGHT = 0.7
 TEXT_METRICS = "text-metrics"
-TRAINING_DATA_DIR = BASE_DATA_DIR "train"
+TRAINING_DATA_DIR = BASE_DATA_DIR + "/train"
 WARM_CHECKPOINT = "./dist/warm/segmentation_filters_128"
 WIDTH = "width"
 
