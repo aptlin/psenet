@@ -143,37 +143,67 @@ def random_background_crop(
     return output
 
 
-def adjust_side(side):
-    return tf.math.maximum(
-        tf.floor(side / config.MIN_SIDE) * config.MIN_SIDE, config.MIN_SIDE
-    )
+def adjust_side(side, divisor=config.MIN_SIDE, min_side=config.MIN_SIDE):
+    if tf.is_tensor(side):
+        new_side = tf.math.maximum(
+            tf.math.floor(tf.math.floor(side + divisor / 2) / divisor)
+            * divisor,
+            min_side,
+        )
+        should_enlarge = tf.greater(0.9 * side, new_side)
+        new_side = tf.cond(
+            should_enlarge, lambda: new_side + divisor, lambda: new_side
+        )
+    else:
+        new_side = max(min_side, int(side + divisor / 2) // divisor * divisor)
+        if new_side < 0.9 * side:
+            new_side += divisor
+    return new_side
 
 
-def scale(image, resize_length=config.RESIZE_LENGTH):
-    image_shape = tf.shape(image)
-    resize_length = tf.cast(resize_length, tf.float32)
+def scale(image, resize_length=config.RESIZE_LENGTH, min_side=config.MIN_SIDE):
+    if tf.is_tensor(image):
+        image_shape = tf.shape(image)
+        resize_length = tf.cast(resize_length, tf.float32)
 
-    height = tf.cast(image_shape[0], tf.float32)
-    width = tf.cast(image_shape[1], tf.float32)
-    height = tf.math.maximum(height, config.MIN_SIDE)
-    width = tf.math.maximum(width, config.MIN_SIDE)
-    max_side = tf.math.maximum(height, width)
+        height = tf.cast(image_shape[0], tf.float32)
+        width = tf.cast(image_shape[1], tf.float32)
+        max_side = tf.math.maximum(height, width)
 
-    should_scale = tf.greater(max_side, resize_length)
-    scaling_factor = tf.cond(
-        should_scale,
-        lambda: tf.math.divide(resize_length, max_side),
-        lambda: 1.0,
-    )
+        should_scale = tf.greater(max_side, resize_length)
+        scaling_factor = tf.cond(
+            should_scale,
+            lambda: tf.math.divide(resize_length, max_side),
+            lambda: 1.0,
+        )
 
-    output = tf.image.resize(
-        image,
-        [
-            tf.cast(adjust_side(tf.round(scaling_factor * height)), tf.int64),
-            tf.cast(adjust_side(tf.round(scaling_factor * width)), tf.int64),
-        ],
-        method=tf.image.ResizeMethod.NEAREST_NEIGHBOR,
-    )
+        output = tf.image.resize(
+            image,
+            [
+                tf.cast(
+                    adjust_side(tf.round(scaling_factor * height)), tf.int64
+                ),
+                tf.cast(
+                    adjust_side(tf.round(scaling_factor * width)), tf.int64
+                ),
+            ],
+            method=tf.image.ResizeMethod.NEAREST_NEIGHBOR,
+        )
+    else:
+        height, width = image.shape[:2]
+        max_side = max(height, width)
+        ratio = 1.0
+        if max_side > resize_length:
+            ratio = resize_length / max_side
+        return cv2.resize(
+            image,
+            (
+                adjust_side(round(height * ratio)),
+                adjust_side(round(width * ratio)),
+            ),
+            interpolation=cv2.INTER_NEAREST,
+        )
+
     return output
 
 
@@ -256,3 +286,27 @@ def shrink(bboxes, rate, max_shr=20):
         shrinked_bboxes.append(shrinked_bbox)
 
     return np.array(shrinked_bboxes)
+
+
+def check_validity(inputs, divisor=config.MIN_SIDE, min_side=config.MIN_SIDE):
+    if tf.is_tensor(inputs):
+
+        def is_valid(side):
+            return tf.logical_and(
+                tf.math.greater_equal(side, min_side),
+                tf.math.equal(tf.math.floormod(side, divisor), 0),
+            )
+
+        image = inputs[config.IMAGE]
+        image_shape = tf.shape(image)
+        height = image_shape[0]
+        width = image_shape[1]
+        return tf.logical_and(is_valid(height), is_valid(width))
+    else:
+
+        def is_valid(side):
+            return (side >= min_side) and ((side % min_side) == 0)
+
+        image = inputs[config.IMAGE]
+        height, width = image.shape[:2]
+        return is_valid(height) and is_valid(width)

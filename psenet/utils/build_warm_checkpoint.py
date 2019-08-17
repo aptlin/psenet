@@ -1,8 +1,10 @@
 import argparse
-from psenet import config
-from psenet.model import model_fn
-from psenet.data import build_dataset
+
 import tensorflow as tf
+
+from psenet import config
+from psenet.data import build_dataset
+from psenet.model import model_fn
 
 
 def init_estimator(FLAGS):

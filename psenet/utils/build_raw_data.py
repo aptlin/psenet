@@ -7,14 +7,41 @@ import random
 import threading
 
 import numpy as np
+from tensorflow.python.platform import tf_logging as logging
 import tensorflow as tf
 from tqdm import tqdm
 
-import build_example
 from psenet import config
-
+from psenet.utils.examples import (
+    bytes_list_feature,
+    float_list_feature,
+    int64_list_feature,
+)
+from psenet.utils.readers import ImageReader
 
 _NUM_SHARDS = 8
+
+
+def build_raw_example(image_data, text_data, filename, height, width, bboxes):
+    tags = "".join(
+        map(lambda text: str(int(not text.startswith("###"))), text_data)
+    )
+    assert len(tags) == len(bboxes) // config.BBOX_SIZE
+    return tf.train.Example(
+        features=tf.train.Features(
+            feature={
+                "image/encoded": bytes_list_feature(image_data),
+                "image/filename": bytes_list_feature(filename),
+                "image/height": int64_list_feature(height),
+                "image/width": int64_list_feature(width),
+                "image/text/tags/encoded": bytes_list_feature(tags),
+                "image/text/boxes/count": int64_list_feature(
+                    len(bboxes) // config.BBOX_SIZE
+                ),
+                "image/text/boxes/encoded": float_list_feature(bboxes),
+            }
+        )
+    )
 
 
 def _convert_shard(
@@ -23,7 +50,7 @@ def _convert_shard(
     num_images = len(jpeg_images_filenames)
     num_per_shard = int(math.ceil(num_images / float(_NUM_SHARDS)))
 
-    image_reader = build_example.ImageReader()
+    image_reader = ImageReader()
     output_filename = os.path.join(
         target_dir, f"shard-{(shard_id + 1):05}-of-{_NUM_SHARDS:05}.tfrecord"
     )
@@ -35,7 +62,7 @@ def _convert_shard(
             image_format = os.path.basename(image_filename).split(".")[1]
             image_data = tf.io.gfile.GFile(image_filename, "rb").read()
             height, width = image_reader.read_image_dims(
-                image_data, image_format
+                image_data, image_format, channels=3
             )
 
             labels_filename = labels_filenames[i]
@@ -54,7 +81,7 @@ def _convert_shard(
                     text_datum = line[9]
                     text_data.append(text_datum)
 
-            example = build_example.labelled_image_to_tfexample(
+            example = build_raw_example(
                 image_data,
                 text_data,
                 jpeg_images_filenames[i],
@@ -95,7 +122,7 @@ def _convert_images(data_dir, target_dir):
         thread.start()
         threads.append(thread)
     coord.join(threads)
-    print("Done!")
+    logging.info("Done processing {} to {}".format(data_dir, target_dir))
 
 
 def main():
@@ -103,20 +130,20 @@ def main():
     PARSER.add_argument(
         "--training-data-dir",
         help="The directory with `images/` and `labels/` for training",
-        default=config.TRAINING_DATA_DIR,
+        default=config.RAW_TRAINING_DATA_DIR,
         type=str,
     )
     PARSER.add_argument(
         "--eval-data-dir",
         help="The directory with `images/` and `labels/` for evaluation",
-        default=config.TRAINING_DATA_DIR,
+        default=config.RAW_EVAL_DATA_DIR,
         type=str,
     )
     PARSER.add_argument(
         "--output-dir",
-        help="The target directorycontaining"
+        help="The target directory containing"
         + "train/ and eval/ subdirectories with TFRecords",
-        default=config.TRAINING_DATA_DIR,
+        default=config.BASE_DATA_DIR,
         type=str,
     )
     FLAGS, _ = PARSER.parse_known_args()

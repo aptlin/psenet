@@ -4,15 +4,18 @@ import cv2
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.platform import tf_logging as logging
+
 import psenet.config as config
-import psenet.preprocess as preprocess
+import psenet.data.preprocess as preprocess
+from psenet.backbones.factory import Backbones
 
 
-class Dataset:
+class RawDataset:
     def __init__(
         self,
         dataset_dir,
         batch_size,
+        backbone_name=config.BACKBONE_NAME,
         resize_length=config.RESIZE_LENGTH,
         crop_size=config.CROP_SIZE,
         min_scale=config.MIN_SCALE,
@@ -36,8 +39,9 @@ class Dataset:
         self.should_augment = should_augment
         self.input_context = input_context
         self.prefetch = prefetch
+        self.preprocess = Backbones.get_preprocessing(backbone_name)
 
-    def _parse_example(self, example_prototype):
+    def _parse_example(self, example_proto):
         features = {
             "image/encoded": tf.io.FixedLenFeature(
                 (), tf.string, default_value=""
@@ -62,9 +66,7 @@ class Dataset:
             ),
             "image/text/boxes/encoded": tf.io.VarLenFeature(tf.float32),
         }
-        parsed_features = tf.io.parse_single_example(
-            example_prototype, features
-        )
+        parsed_features = tf.io.parse_single_example(example_proto, features)
         image_data = parsed_features["image/encoded"]
         image = tf.cond(
             tf.image.is_jpeg(image_data),
@@ -127,6 +129,7 @@ class Dataset:
                 resize_length=self.resize_length,
                 crop_size=self.crop_size,
             )
+        image = self.preprocess(image)
         image_shape = tf.shape(image)
         height = image_shape[0]
         width = image_shape[1]
@@ -167,19 +170,6 @@ class Dataset:
         label = tf.cast(label, tf.float32)
         mask = tf.cast(mask, tf.float32)
         return ({config.IMAGE: image, config.MASK: mask}, label)
-
-    def _guarantee_validity(self, inputs, label):
-        def is_valid(side):
-            return tf.logical_and(
-                tf.math.greater_equal(side, config.MIN_SIDE),
-                tf.math.equal(tf.math.floormod(side, config.MIN_SIDE), 0),
-            )
-
-        image = inputs[config.IMAGE]
-        image_shape = tf.shape(image)
-        height = image_shape[0]
-        width = image_shape[1]
-        return tf.logical_and(is_valid(height), is_valid(width))
 
     def _get_all_tfrecords(self):
         return tf.data.Dataset.list_files(
@@ -225,20 +215,22 @@ class Dataset:
             self._preprocess_example, num_parallel_calls=self.num_readers
         )
 
-        dataset = dataset.filter(self._guarantee_validity)
+        dataset = dataset.filter(
+            lambda inputs, labels: preprocess.check_validity(inputs)
+        )
 
         dataset = dataset.padded_batch(
             self.batch_size,
             padded_shapes=(
                 {config.IMAGE: [None, None, 3], config.MASK: [None, None]},
-                [None, None, config.KERNEL_NUM],
+                [None, None, self.kernel_num],
             ),
         ).prefetch(self.prefetch)
 
         return dataset
 
 
-def build_dataset(mode, FLAGS):
+def build(mode, FLAGS):
     def input_fn(input_context=None):
         is_training = mode == tf.estimator.ModeKeys.TRAIN
         if FLAGS.augment_training_data:
@@ -248,7 +240,7 @@ def build_dataset(mode, FLAGS):
         dataset_dir = (
             FLAGS.training_data_dir if is_training else FLAGS.eval_data_dir
         )
-        dataset = Dataset(
+        dataset = RawDataset(
             dataset_dir,
             FLAGS.batch_size,
             resize_length=FLAGS.resize_length,
