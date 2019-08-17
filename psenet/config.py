@@ -40,8 +40,10 @@ NUM_BATCHES_TO_SHUFFLE = 4
 NUM_READERS = 1
 NUMBER_OF_BBOXES = "number_of_bboxes"
 PREFETCH = 1
+PROCESSED_DATA_LABEL = "processed"
 RAW_EVAL_DATA_DIR = "./dist/mlt/eval"
 RAW_TRAINING_DATA_DIR = "./dist/mlt/train"
+RAW_DATA_LABEL = "raw"
 REGULARIZATION_WEIGHT_DECAY = 5e-4
 RESIZE_LENGTH = 640
 SAVE_CHECKPOINTS_STEPS = 5
@@ -52,7 +54,7 @@ TEXT = "text"
 TEXT_LOSS_WEIGHT = 0.7
 TEXT_METRICS = "text-metrics"
 TRAINING_DATA_DIR = BASE_DATA_DIR + "/train"
-WARM_CHECKPOINT = "./dist/warm/segmentation_filters_128"
+WARM_CHECKPOINT = "./dist/warm/tiny-psenet-rc0"
 WIDTH = "width"
 
 

@@ -5,41 +5,26 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.platform import tf_logging as logging
 
-import psenet.config as config
-import psenet.data.preprocess as preprocess
+from psenet import config
+from psenet.data import preprocess
 from psenet.backbones.factory import Backbones
 
 
 class RawDataset:
-    def __init__(
-        self,
-        dataset_dir,
-        batch_size,
-        backbone_name=config.BACKBONE_NAME,
-        resize_length=config.RESIZE_LENGTH,
-        crop_size=config.CROP_SIZE,
-        min_scale=config.MIN_SCALE,
-        kernel_num=config.KERNEL_NUM,
-        num_readers=config.NUM_READERS,
-        should_shuffle=False,
-        should_repeat=False,
-        should_augment=True,
-        input_context=None,
-        prefetch=config.PREFETCH,
-    ):
-        self.dataset_dir = dataset_dir
-        self.batch_size = batch_size
-        self.resize_length = resize_length
-        self.num_readers = num_readers
-        self.should_shuffle = should_shuffle
-        self.should_repeat = should_repeat
-        self.min_scale = min_scale
-        self.kernel_num = kernel_num
-        self.crop_size = crop_size
-        self.should_augment = should_augment
-        self.input_context = input_context
-        self.prefetch = prefetch
-        self.preprocess = Backbones.get_preprocessing(backbone_name)
+    def __init__(self, FLAGS):
+        self.dataset_dir = FLAGS.dataset_dir
+        self.batch_size = FLAGS.batch_size
+        self.num_readers = FLAGS.num_readers
+        self.should_shuffle = FLAGS.should_shuffle
+        self.should_repeat = FLAGS.should_repeat
+        self.min_scale = FLAGS.min_scale
+        self.kernel_num = FLAGS.kernel_num
+        self.should_augment = FLAGS.should_augment
+        self.input_context = FLAGS.input_context
+        self.prefetch = FLAGS.prefetch
+        self.preprocess = Backbones.get_preprocessing(FLAGS.backbone_name)
+        self.resize_length = FLAGS.resize_length
+        self.crop_size = FLAGS.resize_length // 2
 
     def _parse_example(self, example_proto):
         features = {
@@ -129,7 +114,9 @@ class RawDataset:
                 resize_length=self.resize_length,
                 crop_size=self.crop_size,
             )
-        image = self.preprocess(image)
+        else:
+            image = preprocess.scale(image, resize_length=self.resize_length)
+
         image_shape = tf.shape(image)
         height = image_shape[0]
         width = image_shape[1]
@@ -160,11 +147,12 @@ class RawDataset:
             image = tf.image.random_brightness(image, 32 / 255)
             image = tf.image.random_saturation(image, 0.5, 1.5)
 
+        image = tf.cast(image, tf.float32)
+        image = self.preprocess(image)
         gt_text = tf.cast(gt_text, tf.float32)
         gt_text = tf.sign(gt_text)
         gt_text = tf.cast(gt_text, tf.uint8)
         gt_text = tf.expand_dims(gt_text, axis=0)
-        image = tf.cast(image, tf.float32)
         label = tf.concat([gt_text, gt_kernels], axis=0)
         label = tf.transpose(label, perm=[1, 2, 0])
         label = tf.cast(label, tf.float32)
@@ -216,7 +204,7 @@ class RawDataset:
         )
 
         dataset = dataset.filter(
-            lambda inputs, labels: preprocess.check_validity(inputs)
+            lambda inputs, labels: preprocess.check_image_validity(inputs)
         )
 
         dataset = dataset.padded_batch(
@@ -230,30 +218,21 @@ class RawDataset:
         return dataset
 
 
-def build(mode, FLAGS):
+def build(FLAGS):
     def input_fn(input_context=None):
-        is_training = mode == tf.estimator.ModeKeys.TRAIN
+        is_training = FLAGS.mode == tf.estimator.ModeKeys.TRAIN
         if FLAGS.augment_training_data:
             should_augment = is_training
         else:
             should_augment = False
-        dataset_dir = (
+        FLAGS.input_context = input_context
+        FLAGS.should_augment = should_augment
+        FLAGS.should_repeat = True
+        FLAGS.dataset_dir = (
             FLAGS.training_data_dir if is_training else FLAGS.eval_data_dir
         )
-        dataset = RawDataset(
-            dataset_dir,
-            FLAGS.batch_size,
-            resize_length=FLAGS.resize_length,
-            min_scale=FLAGS.min_scale,
-            kernel_num=FLAGS.kernel_num,
-            crop_size=FLAGS.resize_length // 2,
-            num_readers=FLAGS.readers_num,
-            should_shuffle=is_training,
-            should_repeat=True,
-            should_augment=should_augment,
-            input_context=input_context,
-            prefetch=FLAGS.prefetch,
-        ).build()
+        FLAGS.should_shuffle = is_training
+        dataset = RawDataset(FLAGS).build()
         return dataset
 
     return input_fn

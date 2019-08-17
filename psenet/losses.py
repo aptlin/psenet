@@ -132,7 +132,7 @@ def compute_loss(labels, predictions, masks):
     )
 
     current_loss = tf.math.add_n(
-        [current_loss] + tf.losses.get_regularization_losses()
+        [current_loss] + tf.compat.v1.losses.get_regularization_losses()
     )
 
     return text_loss, kernel_loss, current_loss

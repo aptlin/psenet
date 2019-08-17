@@ -24,7 +24,7 @@
 # THE SOFTWARE.
 
 import tensorflow as tf
-from psenet.layers.common import Conv2dBn
+from psenet.nets.common import Conv2dBn
 from psenet.backbones.factory import Backbones
 
 

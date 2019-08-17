@@ -70,7 +70,7 @@ def build_processed_example(
 
     mask = mask.astype("float32")
 
-    assert preprocess.check_validity(
+    assert preprocess.check_numpy_image_validity(
         {config.IMAGE: image}
     ), "Got an invalid image shape {}".format(image.shape)
 

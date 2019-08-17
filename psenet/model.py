@@ -1,6 +1,6 @@
 from psenet import config
 import tensorflow as tf
-from psenet.layers.fpn import FPN
+from psenet.nets.fpn import FPN
 import psenet.metrics as metrics
 import psenet.losses as losses
 
@@ -33,25 +33,16 @@ def build_model(params):
 
 
 def build_optimizer(params):
-    return tf.train.AdamOptimizer(
+    return tf.compat.v1.train.MomentumOptimizer(
         learning_rate=tf.compat.v1.train.exponential_decay(
             learning_rate=params.learning_rate,
-            global_step=tf.train.get_or_create_global_step(),
+            global_step=tf.compat.v1.train.get_or_create_global_step(),
             decay_steps=params.decay_steps,
             decay_rate=params.decay_rate,
             staircase=True,
-        )
+        ),
+        momentum=config.MOMENTUM,
     )
-    # return tf.train.MomentumOptimizer(
-    #     learning_rate=tf.compat.v1.train.exponential_decay(
-    #         learning_rate=params.learning_rate,
-    #         global_step=tf.train.get_or_create_global_step(),
-    #         decay_steps=params.decay_steps,
-    #         decay_rate=params.decay_rate,
-    #         staircase=True,
-    #     ),
-    #     momentum=config.MOMENTUM,
-    # )
 
 
 def model_fn(features, labels, mode, params):
@@ -71,7 +62,8 @@ def model_fn(features, labels, mode, params):
         model = build_model(params)
         optimizer = build_optimizer(params)
 
-        predictions = model(features[config.IMAGE], training=True)
+        image = features[config.IMAGE]
+        predictions = model(image, training=True)
         masks = features[config.MASK]
         text_loss, kernel_loss, total_loss = losses.compute_loss(
             labels, predictions, masks
@@ -89,7 +81,7 @@ def model_fn(features, labels, mode, params):
             mode=tf.estimator.ModeKeys.TRAIN,
             loss=total_loss,
             train_op=optimizer.minimize(
-                total_loss, tf.train.get_or_create_global_step()
+                total_loss, tf.compat.v1.train.get_or_create_global_step()
             ),
         )
     elif mode == tf.estimator.ModeKeys.EVAL:

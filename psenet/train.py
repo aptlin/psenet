@@ -1,4 +1,5 @@
 import argparse
+import copy
 import json
 import os
 
@@ -7,21 +8,24 @@ from tensorflow.python.client import device_lib
 from tensorflow.python.platform import tf_logging as logging
 
 from psenet import config
-from psenet.data import build_dataset
-from psenet.model import model_fn
+from psenet.data import DATASETS, build_input_fn
 from psenet.eval import build_eval_exporter
+from psenet.model import model_fn
 
 
 def train_and_evaluate(FLAGS):
 
+    TRAIN_FLAGS = copy.deepcopy(FLAGS)
+    TRAIN_FLAGS.mode = tf.estimator.ModeKeys.TRAIN
     train_spec = tf.estimator.TrainSpec(
-        input_fn=build_dataset(tf.estimator.ModeKeys.TRAIN, FLAGS),
-        max_steps=FLAGS.train_steps,
+        input_fn=build_input_fn(TRAIN_FLAGS), max_steps=FLAGS.train_steps
     )
 
+    EVAL_FLAGS = copy.deepcopy(FLAGS)
+    EVAL_FLAGS.mode = tf.estimator.ModeKeys.EVAL
     eval_exporter = build_eval_exporter()
     eval_spec = tf.estimator.EvalSpec(
-        input_fn=build_dataset(tf.estimator.ModeKeys.EVAL, FLAGS),
+        input_fn=build_input_fn(EVAL_FLAGS),
         exporters=eval_exporter,
         steps=FLAGS.eval_steps,
         start_delay_secs=FLAGS.eval_start_delay_secs,
@@ -34,12 +38,12 @@ def train_and_evaluate(FLAGS):
         strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy()
 
     params = tf.contrib.training.HParams(
-        kernel_num=FLAGS.kernel_num,
         backbone_name=FLAGS.backbone_name,
         decay_rate=FLAGS.decay_rate,
         decay_steps=FLAGS.decay_steps,
-        learning_rate=FLAGS.learning_rate,
         encoder_weights=None,
+        kernel_num=FLAGS.kernel_num,
+        learning_rate=FLAGS.learning_rate,
         regularization_weight_decay=FLAGS.regularization_weight_decay,
     )
 
@@ -50,10 +54,10 @@ def train_and_evaluate(FLAGS):
         train_distribute=strategy,
         eval_distribute=strategy,
         keep_checkpoint_max=5,
-        session_config=tf.ConfigProto(
+        session_config=tf.compat.v1.ConfigProto(
             allow_soft_placement=True,
             device_count={"GPU": FLAGS.gpu_per_worker},
-            gpu_options=tf.GPUOptions(
+            gpu_options=tf.compat.v1.GPUOptions(
                 allow_growth=True,
                 visible_device_list=",".join(
                     [str(i) for i in range(FLAGS.gpu_per_worker)]
@@ -81,6 +85,14 @@ def train_and_evaluate(FLAGS):
 
 if __name__ == "__main__":
     PARSER = argparse.ArgumentParser()
+    PARSER.add_argument(
+        "--dataset",
+        help="The dataset to load. Must be one of {}.".format(
+            list(DATASETS.keys())
+        ),
+        default=config.PROCESSED_DATA_LABEL,
+        type=str,
+    )
     PARSER.add_argument(
         "--training-data-dir",
         help="The directory with `images/` and `labels/` for training",
@@ -149,7 +161,7 @@ if __name__ == "__main__":
         type=int,
     )
     PARSER.add_argument(
-        "--readers-num",
+        "--num_readers",
         help="The number of parallel readers",
         default=config.NUM_READERS,
         type=int,

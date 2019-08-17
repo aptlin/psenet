@@ -288,25 +288,28 @@ def shrink(bboxes, rate, max_shr=20):
     return np.array(shrinked_bboxes)
 
 
-def check_validity(inputs, divisor=config.MIN_SIDE, min_side=config.MIN_SIDE):
-    if tf.is_tensor(inputs):
+def check_image_validity(
+    inputs, divisor=config.MIN_SIDE, min_side=config.MIN_SIDE
+):
+    def is_valid(side):
+        return tf.logical_and(
+            tf.math.greater_equal(side, min_side),
+            tf.math.equal(tf.math.floormod(side, divisor), 0),
+        )
 
-        def is_valid(side):
-            return tf.logical_and(
-                tf.math.greater_equal(side, min_side),
-                tf.math.equal(tf.math.floormod(side, divisor), 0),
-            )
+    image = inputs[config.IMAGE]
+    image_shape = tf.shape(image)
+    height = image_shape[0]
+    width = image_shape[1]
+    return tf.logical_and(is_valid(height), is_valid(width))
 
-        image = inputs[config.IMAGE]
-        image_shape = tf.shape(image)
-        height = image_shape[0]
-        width = image_shape[1]
-        return tf.logical_and(is_valid(height), is_valid(width))
-    else:
 
-        def is_valid(side):
-            return (side >= min_side) and ((side % min_side) == 0)
+def check_numpy_image_validity(
+    inputs, divisor=config.MIN_SIDE, min_side=config.MIN_SIDE
+):
+    def is_valid(side):
+        return (side >= min_side) and ((side % min_side) == 0)
 
-        image = inputs[config.IMAGE]
-        height, width = image.shape[:2]
-        return is_valid(height) and is_valid(width)
+    image = inputs[config.IMAGE]
+    height, width = image.shape[:2]
+    return is_valid(height) and is_valid(width)

@@ -83,7 +83,7 @@ def overall_accuracy(
     overall_accuracy = tf.math.divide(
         tf.math.reduce_sum(diagonal), (total_sum + epsilon)
     )
-    return tf.metrics.mean(
+    return tf.compat.v1.metrics.mean(
         overall_accuracy, name="{}/{}".format(metric_type, "overall_accuracy")
     )
 
@@ -95,7 +95,7 @@ def precision(labels, predictions, masks, metric_type, epsilon=config.EPSILON):
     diagonal = tf.linalg.diag_part(confusion_matrix)
     col_sum = tf.math.reduce_sum(confusion_matrix, axis=0)
     precision = diagonal[0] / (col_sum[0] + epsilon)
-    return tf.metrics.mean(
+    return tf.compat.v1.metrics.mean(
         precision, name="{}/{}".format(metric_type, "precision")
     )
 
@@ -107,7 +107,9 @@ def recall(labels, predictions, masks, metric_type, epsilon=config.EPSILON):
     diagonal = tf.linalg.diag_part(confusion_matrix)
     row_sum = tf.math.reduce_sum(confusion_matrix, axis=1)
     recall = diagonal[0] / (row_sum[0] + epsilon)
-    return tf.metrics.mean(recall, name="{}/{}".format(metric_type, "recall"))
+    return tf.compat.v1.metrics.mean(
+        recall, name="{}/{}".format(metric_type, "recall")
+    )
 
 
 def f1_score(labels, predictions, masks, metric_type, epsilon=config.EPSILON):
@@ -120,7 +122,7 @@ def f1_score(labels, predictions, masks, metric_type, epsilon=config.EPSILON):
     precision = diagonal[0] / (col_sum[0] + epsilon)
     recall = diagonal[0] / (row_sum[0] + epsilon)
     f1_score = 2 * precision * recall / (precision + recall + epsilon)
-    return tf.metrics.mean(
+    return tf.compat.v1.metrics.mean(
         f1_score, name="{}/{}".format(metric_type, "f1_score")
     )
 
@@ -134,7 +136,7 @@ def mean_accuracy(
     diagonal = tf.linalg.diag_part(confusion_matrix)
     row_sum = tf.math.reduce_sum(confusion_matrix, axis=1)
     mean_accuracy = tf.math.reduce_mean(diagonal / (row_sum + epsilon))
-    return tf.metrics.mean(
+    return tf.compat.v1.metrics.mean(
         mean_accuracy, name="{}/{}".format(metric_type, "mean_accuracy")
     )
 
@@ -148,7 +150,7 @@ def mean_iou(labels, predictions, masks, metric_type, epsilon=config.EPSILON):
     col_sum = tf.math.reduce_sum(confusion_matrix, axis=0)
     iou = diagonal / (row_sum + col_sum - diagonal + epsilon)
     mean_iou = tf.math.reduce_mean(iou)
-    return tf.metrics.mean(
+    return tf.compat.v1.metrics.mean(
         mean_iou, name="{}/{}".format(metric_type, "mean_iou")
     )
 
@@ -169,7 +171,7 @@ def frequency_weighted_accuracy(
         tf.boolean_mask(frequency, tf.greater(frequency, 0))
         * tf.boolean_mask(iou, tf.greater(frequency, 0))
     )
-    return tf.metrics.mean(
+    return tf.compat.v1.metrics.mean(
         fwaccuracy, name="{}/{}".format(metric_type, "fwaccuracy")
     )
 

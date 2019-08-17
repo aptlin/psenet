@@ -3,15 +3,19 @@ import argparse
 import tensorflow as tf
 
 from psenet import config
-from psenet.data import build_dataset
+from psenet.data import DATASETS, build_input_fn
 from psenet.model import model_fn
 
 
 def init_estimator(FLAGS):
     params = tf.contrib.training.HParams(
-        kernel_num=FLAGS.kernel_num,
         backbone_name=FLAGS.backbone_name,
+        decay_rate=FLAGS.decay_rate,
+        decay_steps=FLAGS.decay_steps,
         encoder_weights="imagenet",
+        kernel_num=FLAGS.kernel_num,
+        learning_rate=FLAGS.learning_rate,
+        regularization_weight_decay=FLAGS.regularization_weight_decay,
     )
 
     estimator = tf.estimator.Estimator(
@@ -22,9 +26,8 @@ def init_estimator(FLAGS):
 
 def save_checkpoint(FLAGS):
     estimator = init_estimator(FLAGS)
-    estimator.train(
-        input_fn=build_dataset(tf.estimator.ModeKeys.TRAIN, FLAGS), max_steps=2
-    )
+    FLAGS.mode = tf.estimator.ModeKeys.TRAIN
+    estimator.train(input_fn=build_input_fn(FLAGS), max_steps=1)
 
 
 if __name__ == "__main__":
@@ -60,6 +63,81 @@ if __name__ == "__main__":
         default=config.WARM_CHECKPOINT,
         type=str,
     )
-
+    PARSER.add_argument(
+        "--dataset",
+        help="The dataset to load. Must be one of {}.".format(
+            list(DATASETS.keys())
+        ),
+        default=config.PROCESSED_DATA_LABEL,
+        type=str,
+    )
+    PARSER.add_argument(
+        "--augment-training-data",
+        help="Whether to augment training data.",
+        type=config.str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+    )
+    PARSER.add_argument(
+        "--training-data-dir",
+        help="The directory with `images/` and `labels/` for training",
+        default=config.TRAINING_DATA_DIR,
+        type=str,
+    )
+    PARSER.add_argument(
+        "--eval-data-dir",
+        help="The directory with `images/` and `labels/` for evaluation",
+        default=config.EVAL_DATA_DIR,
+        type=str,
+    )
+    PARSER.add_argument(
+        "--batch-size",
+        help="The batch size for training and evaluation",
+        default=config.BATCH_SIZE,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--num_readers",
+        help="The number of parallel readers",
+        default=config.NUM_READERS,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--prefetch",
+        help="The number of batches to prefetch",
+        default=config.PREFETCH,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--min-scale",
+        help="The minimum kernel scale for pre-processing",
+        default=config.LEARNING_RATE_DECAY_FACTOR,
+        type=float,
+    )
+    PARSER.add_argument(
+        "--learning-rate",
+        help="The initial learning rate",
+        default=config.LEARNING_RATE,
+        type=float,
+    )
+    PARSER.add_argument(
+        "--decay-rate",
+        help="The learning rate decay factor",
+        default=config.LEARNING_RATE_DECAY_FACTOR,
+        type=float,
+    )
+    PARSER.add_argument(
+        "--decay-steps",
+        help="The number of steps before the learning rate decays",
+        default=config.LEARNING_RATE_DECAY_STEPS,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--regularization-weight-decay",
+        help="The L2 regularization loss for Conv layers",
+        default=config.REGULARIZATION_WEIGHT_DECAY,
+        type=float,
+    )
     FLAGS, _ = PARSER.parse_known_args()
     save_checkpoint(FLAGS)
