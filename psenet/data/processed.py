@@ -4,6 +4,7 @@ import tensorflow as tf
 from tensorflow.python.platform import tf_logging as logging
 
 from psenet import config
+from psenet.data import preprocess
 
 
 class ProcessedDataset:
@@ -16,6 +17,7 @@ class ProcessedDataset:
         self.prefetch = FLAGS.prefetch
         self.should_repeat = FLAGS.should_repeat
         self.should_shuffle = FLAGS.should_shuffle
+        self.resize_length = FLAGS.resize_length
 
     def _parse_example(self, example_proto):
         features = {
@@ -34,14 +36,22 @@ class ProcessedDataset:
             parsed_features["features/image"], default_value=0
         )
         image = tf.reshape(image, [height, width, 3])
+        image = preprocess.scale(
+            image,
+            resize_length=self.resize_length,
+            method=tf.image.ResizeMethod.BICUBIC,
+        )
 
         mask = tf.sparse.to_dense(
             parsed_features["features/mask"], default_value=0
         )
-        mask = tf.reshape(mask, [height, width])
+        mask = tf.reshape(mask, [height, width, 1])
+        mask = preprocess.scale(mask, resize_length=self.resize_length)
+        mask = tf.squeeze(mask, axis=-1)
 
         labels = tf.sparse.to_dense(parsed_features["labels"], default_value=0)
         labels = tf.reshape(labels, [height, width, self.kernel_num])
+        labels = preprocess.scale(labels, resize_length=self.resize_length)
 
         return ({config.IMAGE: image, config.MASK: mask}, labels)
 

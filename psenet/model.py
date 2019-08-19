@@ -17,7 +17,7 @@ def build_model(params):
         backbone_name=params.backbone_name,
         input_shape=(None, None, 3),
         classes=params.kernel_num,
-        activation="sigmoid",
+        activation="linear",
         weights=None,
         encoder_weights=params.encoder_weights,
         encoder_features="default",

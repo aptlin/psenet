@@ -161,7 +161,12 @@ def adjust_side(side, divisor=config.MIN_SIDE, min_side=config.MIN_SIDE):
     return new_side
 
 
-def scale(image, resize_length=config.RESIZE_LENGTH, min_side=config.MIN_SIDE):
+def scale(
+    image,
+    resize_length=config.RESIZE_LENGTH,
+    min_side=config.MIN_SIDE,
+    method=tf.image.ResizeMethod.NEAREST_NEIGHBOR,
+):
     if tf.is_tensor(image):
         image_shape = tf.shape(image)
         resize_length = tf.cast(resize_length, tf.float32)
@@ -187,7 +192,7 @@ def scale(image, resize_length=config.RESIZE_LENGTH, min_side=config.MIN_SIDE):
                     adjust_side(tf.round(scaling_factor * width)), tf.int64
                 ),
             ],
-            method=tf.image.ResizeMethod.NEAREST_NEIGHBOR,
+            method=method,
         )
     else:
         height, width = image.shape[:2]

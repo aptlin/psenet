@@ -3,14 +3,7 @@ import tensorflow as tf
 
 
 def dice_loss(labels, predictions, masks):
-    labels_shape = tf.shape(labels)
-    labels = tf.reshape(labels, [labels_shape[0], -1])
-
-    predictions_shape = tf.shape(predictions)
-    predictions = tf.reshape(predictions, [predictions_shape[0], -1])
-
-    masks_shape = tf.shape(masks)
-    masks = tf.reshape(masks, [masks_shape[0], -1])
+    predictions = tf.math.sigmoid(predictions)
 
     labels *= masks
     predictions *= masks
@@ -103,13 +96,12 @@ def compute_loss(labels, predictions, masks):
 
     # compute text loss
     text_masks = ohem_batch(ground_truth_texts, predicted_texts, masks)
-    text_loss = tf.identity(
-        dice_loss(ground_truth_texts, predicted_texts, text_masks)
-    )
+    text_loss = dice_loss(ground_truth_texts, predicted_texts, text_masks)
 
     # compute kernel loss
     kernel_masks = tf.logical_and(
-        tf.greater(predicted_texts, 0.5), tf.greater(masks, 0.5)
+        tf.greater(tf.math.sigmoid(predicted_texts), 0.5),
+        tf.greater(masks, 0.5),
     )
     kernel_masks = tf.cast(kernel_masks, tf.float32)
 

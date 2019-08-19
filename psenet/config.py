@@ -1,7 +1,7 @@
 import argparse
 
 BACKBONE_NAME = "mobilenetv2"
-BASE_DATA_DIR = "./dist/mlt/tfrecords"
+BASE_DATA_DIR = "./dist/mlt/preprocessed"
 BATCH_SIZE = 1
 BBOX_SIZE = 8
 BBOXES = "bboxes"
@@ -40,12 +40,12 @@ NUM_BATCHES_TO_SHUFFLE = 4
 NUM_READERS = 1
 NUMBER_OF_BBOXES = "number_of_bboxes"
 PREFETCH = 1
-PROCESSED_DATA_LABEL = "processed"
+PROCESSED_DATA_LABEL = "preprocessed"
 RAW_EVAL_DATA_DIR = "./dist/mlt/eval"
 RAW_TRAINING_DATA_DIR = "./dist/mlt/train"
 RAW_DATA_LABEL = "raw"
 REGULARIZATION_WEIGHT_DECAY = 5e-4
-RESIZE_LENGTH = 640
+RESIZE_LENGTH = 320
 SAVE_CHECKPOINTS_STEPS = 5
 SAVE_SUMMARY_STEPS = 1
 SAVED_MODEL_DIR = "./dist/psenet/saved_model"

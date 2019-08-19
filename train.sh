@@ -3,7 +3,7 @@
 # the checkpoint with mobilenet weights:
 #gs://gsoc-tfjs/weights/psenet/warm/segmentation_filters_128
 
-JOB_ID=psenet_rc153
+JOB_ID=psenet_rc164
 gcloud ai-platform jobs submit training $JOB_ID \
     --job-dir gs://gsoc-tfjs/weights/psenet/custom/$JOB_ID \
     --module-name psenet.train \
@@ -17,16 +17,16 @@ gcloud ai-platform jobs submit training $JOB_ID \
     --eval-steps 10 \
     --kernels-num 7 \
     --batch-size 8 \
-    --training-data-dir gs://gsoc-tfjs/data/icdar/mlt/2019/tfrecords/train \
-    --eval-data-dir gs://gsoc-tfjs/data/icdar/mlt/2019/tfrecords/eval \
-    --warm-ckpt gs://gsoc-tfjs/weights/psenet/warm/tiny-psenet-rc0 \
+    --training-data-dir gs://gsoc-tfjs/data/icdar/mlt/2019/preprocessed/train \
+    --eval-data-dir gs://gsoc-tfjs/data/icdar/mlt/2019/preprocessed/eval \
+    --warm-ckpt gs://gsoc-tfjs/weights/psenet/custom/psenet_rc162 \
     --backbone-name mobilenetv2 \
-    --learning-rate 0.001 \
-    --decay-steps 12000 \
+    --learning-rate 0.0001 \
+    --decay-steps 2500 \
     --decay-rate 0.01 \
     --eval-start-delay-secs 120 \
     --eval-throttle-secs 72000 \
-    --save-checkpoints-steps 10 \
+    --save-checkpoints-steps 5 \
     --save-summary-steps 5 \
     --readers-num 4 \
     --resize-length 320 \
@@ -35,4 +35,4 @@ gcloud ai-platform jobs submit training $JOB_ID \
     --distribution-strategy multi-worker-mirrored \
     --regularization-weight-decay 0.0005 \
     --augment-training-data False \
-    --dataset raw
+    --dataset preprocessed

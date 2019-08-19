@@ -3,19 +3,22 @@ import psenet.config as config
 
 
 def filter_texts(labels, predictions, masks):
-    text = predictions[:, :, :, 0] * masks
+    text = tf.math.sigmoid(predictions[:, :, :, 0]) * masks
     text = tf.where(
         tf.greater(text, 0.5), tf.ones_like(text), tf.zeros_like(text)
     )
+    text = tf.cast(text, tf.int32)
 
     gt_text = labels[:, :, :, 0] * masks
+    gt_text = tf.cast(gt_text, tf.int32)
 
     return gt_text, text
 
 
 def filter_kernels(labels, predictions, masks):
     gt_text = labels[:, :, :, 0] * masks
-    kernel = predictions[:, :, :, -1]
+
+    kernel = tf.math.sigmoid(predictions[:, :, :, -1])
     kernel = tf.where(
         tf.greater(kernel, 0.5), tf.ones_like(kernel), tf.zeros_like(kernel)
     )

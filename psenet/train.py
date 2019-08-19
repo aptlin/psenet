@@ -53,7 +53,7 @@ def train_and_evaluate(FLAGS):
         save_summary_steps=FLAGS.save_summary_steps,
         train_distribute=strategy,
         eval_distribute=strategy,
-        keep_checkpoint_max=5,
+        keep_checkpoint_max=10,
         session_config=tf.compat.v1.ConfigProto(
             allow_soft_placement=True,
             device_count={"GPU": FLAGS.gpu_per_worker},
@@ -77,10 +77,6 @@ def train_and_evaluate(FLAGS):
     )
 
     tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
-    # estimator.train(
-    #     input_fn=build_dataset(tf.estimator.ModeKeys.TRAIN, FLAGS),
-    #     max_steps=FLAGS.train_steps,
-    # )
 
 
 if __name__ == "__main__":
