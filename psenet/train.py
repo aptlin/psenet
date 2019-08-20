@@ -43,41 +43,38 @@ def build_optimizer(params):
 
 def train(FLAGS):
 
-    FLAGS.mode = tf.estimator.ModeKeys.TRAIN
-
-    params = tf.contrib.training.HParams(
-        backbone_name=FLAGS.backbone_name,
-        decay_rate=FLAGS.decay_rate,
-        decay_steps=FLAGS.decay_steps,
-        encoder_weights="imagenet",
-        kernel_num=FLAGS.kernel_num,
-        learning_rate=FLAGS.learning_rate,
-        regularization_weight_decay=FLAGS.regularization_weight_decay,
+    strategy = tf.distribute.MirroredStrategy()
+    logging.info(
+        "Number of replicas in sync: {}".format(strategy.num_replicas_in_sync)
     )
 
-    model = build_model(params)
+    with strategy.scope():
+        FLAGS.mode = tf.estimator.ModeKeys.TRAIN
 
-    try:
-        model = tf.keras.utils.multi_gpu_model(
-            model, gpus=FLAGS.num_gpus, cpu_relocation=True
+        params = tf.contrib.training.HParams(
+            backbone_name=FLAGS.backbone_name,
+            decay_rate=FLAGS.decay_rate,
+            decay_steps=FLAGS.decay_steps,
+            encoder_weights="imagenet",
+            kernel_num=FLAGS.kernel_num,
+            learning_rate=FLAGS.learning_rate,
+            regularization_weight_decay=FLAGS.regularization_weight_decay,
         )
-        logging.info("Training using multiple GPUs..")
-    except ValueError:
-        logging.info("Training using a single GPU or CPU..")
 
-    model.compile(
-        loss=psenet_loss,
-        optimizer=build_optimizer(params),
-        metrics=keras_psenet_metrics(),
-    )
-
-    model.fit(
-        build_input_fn(FLAGS)(),
-        epochs=FLAGS.num_epochs,
-        steps_per_epoch=FLAGS.steps_per_epoch,
-        callbacks=build_callbacks(FLAGS),
-        verbose=2,
-    )
+        model = build_model(params)
+        model.compile(
+            loss=psenet_loss,
+            optimizer=build_optimizer(params),
+            metrics=keras_psenet_metrics(),
+            experimental_run_tf_function=True,
+        )
+        model.fit(
+            build_input_fn(FLAGS)(),
+            epochs=FLAGS.num_epochs,
+            steps_per_epoch=FLAGS.steps_per_epoch,
+            callbacks=build_callbacks(FLAGS),
+            verbose=2,
+        )
 
 
 if __name__ == "__main__":
