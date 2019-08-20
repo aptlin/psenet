@@ -230,7 +230,7 @@ def train(FLAGS):
         eval_distribute=strategy,
         session_config=tf.ConfigProto(
             allow_soft_placement=True,
-            log_device_placement=True,
+            # log_device_placement=True,
             gpu_options=tf.GPUOptions(
                 visible_device_list=",".join(
                     [str(i) for i in range(FLAGS.gpus_num)]
