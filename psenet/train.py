@@ -47,20 +47,19 @@ def train(FLAGS):
     logging.info(
         "Number of replicas in sync: {}".format(strategy.num_replicas_in_sync)
     )
+    FLAGS.mode = tf.estimator.ModeKeys.TRAIN
 
+    params = tf.contrib.training.HParams(
+        backbone_name=FLAGS.backbone_name,
+        decay_rate=FLAGS.decay_rate,
+        decay_steps=FLAGS.decay_steps,
+        encoder_weights="imagenet",
+        kernel_num=FLAGS.kernel_num,
+        learning_rate=FLAGS.learning_rate,
+        regularization_weight_decay=FLAGS.regularization_weight_decay,
+    )
+    data = build_input_fn(FLAGS)()
     with strategy.scope():
-        FLAGS.mode = tf.estimator.ModeKeys.TRAIN
-
-        params = tf.contrib.training.HParams(
-            backbone_name=FLAGS.backbone_name,
-            decay_rate=FLAGS.decay_rate,
-            decay_steps=FLAGS.decay_steps,
-            encoder_weights="imagenet",
-            kernel_num=FLAGS.kernel_num,
-            learning_rate=FLAGS.learning_rate,
-            regularization_weight_decay=FLAGS.regularization_weight_decay,
-        )
-
         model = build_model(params)
         model.compile(
             loss=psenet_loss,
@@ -69,7 +68,7 @@ def train(FLAGS):
             experimental_run_tf_function=True,
         )
         model.fit(
-            build_input_fn(FLAGS)(),
+            data,
             epochs=FLAGS.num_epochs,
             steps_per_epoch=FLAGS.steps_per_epoch,
             callbacks=build_callbacks(FLAGS),
