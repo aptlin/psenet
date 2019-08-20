@@ -390,7 +390,8 @@ if __name__ == "__main__":
 
     FLAGS, _ = PARSER.parse_known_args()
     tf.compat.v1.logging.set_verbosity("DEBUG")
-    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+    os.environ["TF_CPP_VMODULE"] = "gcs_file_system=2"
+    # os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
     os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(
         [str(i) for i in range(FLAGS.gpus_num)]
     )

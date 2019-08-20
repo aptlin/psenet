@@ -1,6 +1,6 @@
 #!/bin/bash
 
-JOB_ID=psenet_rc51
+JOB_ID=psenet_rc169
 gcloud ai-platform jobs submit training $JOB_ID \
     --job-dir gs://gsoc-tfjs/weights/psenet/custom/$JOB_ID \
     --module-name psenet.train \
@@ -20,8 +20,8 @@ gcloud ai-platform jobs submit training $JOB_ID \
     --learning-rate 0.00001 \
     --decay-steps 10000 \
     --decay-rate 0.94 \
-    --eval-start-delay-secs 600 \
-    --eval-throttle-secs 1800 \
+    --eval-start-delay-secs 120 \
+    --eval-throttle-secs 300 \
     --save-checkpoints-secs 120 \
     --save-summary-steps 100 \
     --readers-num 16 \
