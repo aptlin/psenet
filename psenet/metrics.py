@@ -38,7 +38,9 @@ def filter_input(input_type):
     elif input_type == config.TEXT_METRICS:
         return filter_texts
     else:
-        raise NotImplementedError("The metric type has not been recognised.")
+        raise NotImplementedError(
+            "The metric type {} has not been recognised.".format(input_type)
+        )
 
 
 def compute_confusion_matrix(
@@ -76,22 +78,21 @@ def compute_confusion_matrix(
 
 
 class OverallAccuracy(tf.keras.metrics.Metric):
-    def __init__(self, input_type, name="overall_accuracy", **kwargs):
-        super(OverallAccuracy, self).__init__(
-            name="{}/{}".format(input_type, name), **kwargs
-        )
+    def __init__(self, name="overall_accuracy", **kwargs):
+        super(OverallAccuracy, self).__init__(name=name, **kwargs)
         self.overall_accuracy_sum = self.add_weight(
             name="overall_accuracy_sum", initializer="zeros"
         )
         self.count = self.add_weight(
             name="overall_accuracy_count", initializer="zeros"
         )
-        self.input_type = input_type
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         masks = y_true[:, :, :, 0]
         ground_truth = y_true[:, :, :, 1:]
-        value = overall_accuracy(ground_truth, y_pred, masks, self.input_type)
+        value = overall_accuracy(
+            ground_truth, y_pred, masks, self.name.split("/")[0]
+        )
         self.overall_accuracy_sum.assign_add(value)
         self.count.assign_add(1.0)
 
@@ -121,22 +122,19 @@ def overall_accuracy(
 
 
 class Precision(tf.keras.metrics.Metric):
-    def __init__(self, input_type, name="precision", **kwargs):
-        super(Precision, self).__init__(
-            name="{}/{}".format(input_type, name), **kwargs
-        )
+    def __init__(self, name="precision", **kwargs):
+        super(Precision, self).__init__(name=name, **kwargs)
         self.precision_sum = self.add_weight(
             name="precision_sum", initializer="zeros"
         )
         self.count = self.add_weight(
             name="precision_count", initializer="zeros"
         )
-        self.input_type = input_type
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         masks = y_true[:, :, :, 0]
         ground_truth = y_true[:, :, :, 1:]
-        value = precision(ground_truth, y_pred, masks, self.input_type)
+        value = precision(ground_truth, y_pred, masks, self.name.split("/")[0])
         self.precision_sum.assign_add(value)
         self.count.assign_add(1.0)
 
@@ -160,20 +158,17 @@ def precision(labels, predictions, masks, input_type, epsilon=config.EPSILON):
 
 
 class Recall(tf.keras.metrics.Metric):
-    def __init__(self, input_type, name="recall", **kwargs):
-        super(Recall, self).__init__(
-            name="{}/{}".format(input_type, name), **kwargs
-        )
+    def __init__(self, name="recall", **kwargs):
+        super(Recall, self).__init__(name=name, **kwargs)
         self.recall_sum = self.add_weight(
             name="recall_sum", initializer="zeros"
         )
         self.count = self.add_weight(name="recall_count", initializer="zeros")
-        self.input_type = input_type
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         masks = y_true[:, :, :, 0]
         ground_truth = y_true[:, :, :, 1:]
-        value = recall(ground_truth, y_pred, masks, self.input_type)
+        value = recall(ground_truth, y_pred, masks, self.name.split("/")[0])
         self.recall_sum.assign_add(value)
         self.count.assign_add(1.0)
 
@@ -197,22 +192,19 @@ def recall(labels, predictions, masks, input_type, epsilon=config.EPSILON):
 
 
 class F1Score(tf.keras.metrics.Metric):
-    def __init__(self, input_type, name="f1_score", **kwargs):
-        super(F1Score, self).__init__(
-            name="{}/{}".format(input_type, name), **kwargs
-        )
+    def __init__(self, name="f1_score", **kwargs):
+        super(F1Score, self).__init__(name=name, **kwargs)
         self.f1_score_sum = self.add_weight(
             name="f1_score_sum", initializer="zeros"
         )
         self.count = self.add_weight(
             name="f1_score_count", initializer="zeros"
         )
-        self.input_type = input_type
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         masks = y_true[:, :, :, 0]
         ground_truth = y_true[:, :, :, 1:]
-        value = f1_score(ground_truth, y_pred, masks, self.input_type)
+        value = f1_score(ground_truth, y_pred, masks, self.name.split("/")[0])
         self.f1_score_sum.assign_add(value)
         self.count.assign_add(1.0)
 
@@ -239,22 +231,21 @@ def f1_score(labels, predictions, masks, input_type, epsilon=config.EPSILON):
 
 
 class MeanAccuracy(tf.keras.metrics.Metric):
-    def __init__(self, input_type, name="mean_accuracy", **kwargs):
-        super(MeanAccuracy, self).__init__(
-            name="{}/{}".format(input_type, name), **kwargs
-        )
+    def __init__(self, name="mean_accuracy", **kwargs):
+        super(MeanAccuracy, self).__init__(name=name, **kwargs)
         self.mean_accuracy_sum = self.add_weight(
             name="mean_accuracy_sum", initializer="zeros"
         )
         self.count = self.add_weight(
             name="mean_accuracy_count", initializer="zeros"
         )
-        self.input_type = input_type
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         masks = y_true[:, :, :, 0]
         ground_truth = y_true[:, :, :, 1:]
-        value = mean_accuracy(ground_truth, y_pred, masks, self.input_type)
+        value = mean_accuracy(
+            ground_truth, y_pred, masks, self.name.split("/")[0]
+        )
         self.mean_accuracy_sum.assign_add(value)
         self.count.assign_add(1.0)
 
@@ -282,22 +273,19 @@ def mean_accuracy(
 
 
 class MeanIoU(tf.keras.metrics.Metric):
-    def __init__(self, input_type, name="mean_iou", **kwargs):
-        super(MeanIoU, self).__init__(
-            name="{}/{}".format(input_type, name), **kwargs
-        )
+    def __init__(self, name="mean_iou", **kwargs):
+        super(MeanIoU, self).__init__(name=name, **kwargs)
         self.mean_iou_sum = self.add_weight(
             name="mean_iou_sum", initializer="zeros"
         )
         self.count = self.add_weight(
             name="mean_iou_count", initializer="zeros"
         )
-        self.input_type = input_type
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         masks = y_true[:, :, :, 0]
         ground_truth = y_true[:, :, :, 1:]
-        value = mean_iou(ground_truth, y_pred, masks, self.input_type)
+        value = mean_iou(ground_truth, y_pred, masks, self.name.split("/")[0])
         self.mean_iou_sum.assign_add(value)
         self.count.assign_add(1.0)
 
@@ -323,25 +311,20 @@ def mean_iou(labels, predictions, masks, input_type, epsilon=config.EPSILON):
 
 
 class FrequencyWeightedAccuracy(tf.keras.metrics.Metric):
-    def __init__(
-        self, input_type, name="frequency_weighted_accuracy", **kwargs
-    ):
-        super(FrequencyWeightedAccuracy, self).__init__(
-            name="{}/{}".format(input_type, name), **kwargs
-        )
+    def __init__(self, name="frequency_weighted_accuracy", **kwargs):
+        super(FrequencyWeightedAccuracy, self).__init__(name=name, **kwargs)
         self.frequency_weighted_accuracy_sum = self.add_weight(
             name="frequency_weighted_accuracy_sum", initializer="zeros"
         )
         self.count = self.add_weight(
             name="frequency_weighted_accuracy_count", initializer="zeros"
         )
-        self.input_type = input_type
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         masks = y_true[:, :, :, 0]
         ground_truth = y_true[:, :, :, 1:]
         value = frequency_weighted_accuracy(
-            ground_truth, y_pred, masks, self.input_type
+            ground_truth, y_pred, masks, self.name.split("/")[0]
         )
         self.frequency_weighted_accuracy_sum.assign_add(value)
         self.count.assign_add(1.0)
@@ -379,52 +362,20 @@ def frequency_weighted_accuracy(
 
 
 def keras_psenet_metrics():
-    ingots = [
-        OverallAccuracy,
-        MeanAccuracy,
-        MeanIoU,
-        FrequencyWeightedAccuracy,
-        Precision,
-        Recall,
-        F1Score,
-    ]
-    kernel_metrics_type = config.KERNEL_METRICS
-    kernel_metrics = [Metric(kernel_metrics_type) for Metric in ingots]
-    text_metrics_type = config.TEXT_METRICS
-    text_metrics = [Metric(text_metrics_type) for Metric in ingots]
-    return [*kernel_metrics, *text_metrics]
-    # kernel_metrics_type = config.KERNEL_METRICS
-    # kernel_overall_accuracy = OverallAccuracy(kernel_metrics_type)
-    # kernel_mean_accuracy = MeanAccuracy(kernel_metrics_type)
-    # kernel_mean_iou = MeanIoU(kernel_metrics_type)
-    # kernel_fwaccuracy = FrequencyWeightedAccuracy(kernel_metrics_type)
-    # kernel_precision = Precision(kernel_metrics_type)
-    # kernel_recall = Recall(kernel_metrics_type)
-    # kernel_f1_score = F1Score(kernel_metrics_type)
-    # text_metrics_type = config.TEXT_METRICS
-    # text_overall_accuracy = OverallAccuracy(text_metrics_type)
-    # text_mean_accuracy = MeanAccuracy(text_metrics_type)
-    # text_mean_iou = MeanIoU(text_metrics_type)
-    # text_fwaccuracy = FrequencyWeightedAccuracy(text_metrics_type)
-    # text_precision = Precision(text_metrics_type)
-    # text_recall = Recall(text_metrics_type)
-    # text_f1_score = F1Score(text_metrics_type)
-    # return [
-    #     kernel_overall_accuracy,
-    #     kernel_mean_accuracy,
-    #     kernel_mean_iou,
-    #     kernel_fwaccuracy,
-    #     kernel_precision,
-    #     kernel_recall,
-    #     kernel_f1_score,
-    #     text_overall_accuracy,
-    #     text_mean_accuracy,
-    #     text_mean_iou,
-    #     text_fwaccuracy,
-    #     text_precision,
-    #     text_recall,
-    #     text_f1_score,
-    # ]
+    ingots = {
+        "overall_accuracy": OverallAccuracy,
+        "mean_accuracy": MeanAccuracy,
+        "mean_iou": MeanIoU,
+        "frequency_weighted_accuracy": FrequencyWeightedAccuracy,
+        "precision": Precision,
+        "recall": Recall,
+        "f1_score": F1Score,
+    }
+    metrics = []
+    for m_type in [config.KERNEL_METRICS, config.TEXT_METRICS]:
+        for name, Metric in ingots.items():
+            metrics.append(Metric(name="{}/{}".format(m_type, name)))
+    return metrics
 
 
 def psenet_metrics(labels, predictions):

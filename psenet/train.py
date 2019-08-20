@@ -55,8 +55,15 @@ def train(FLAGS):
         regularization_weight_decay=FLAGS.regularization_weight_decay,
     )
 
-    with tf.device("/device:CPU:0"):
-        model = build_model(params)
+    model = build_model(params)
+
+    try:
+        model = tf.keras.utils.multi_gpu_model(
+            model, gpus=FLAGS.num_gpus, cpu_relocation=True
+        )
+        logging.info("Training using multiple GPUs..")
+    except ValueError:
+        logging.info("Training using a single GPU or CPU..")
 
     model.compile(
         loss=psenet_loss,
@@ -66,8 +73,8 @@ def train(FLAGS):
 
     model.fit(
         build_input_fn(FLAGS)(),
-        epochs=60,
-        steps_per_epoch=5,
+        epochs=FLAGS.num_epochs,
+        steps_per_epoch=FLAGS.steps_per_epoch,
         callbacks=build_callbacks(FLAGS),
         verbose=2,
     )
@@ -151,13 +158,13 @@ if __name__ == "__main__":
         type=int,
     )
     PARSER.add_argument(
-        "--num_readers",
+        "--num-readers",
         help="The number of parallel readers",
         default=config.NUM_READERS,
         type=int,
     )
     PARSER.add_argument(
-        "--gpu-num",
+        "--num-gpus",
         help="The number of GPUs to use",
         default=config.GPU_PER_WORKER,
         type=int,
@@ -187,15 +194,15 @@ if __name__ == "__main__":
         type=int,
     )
     PARSER.add_argument(
-        "--train-steps",
+        "--num-epochs",
         help="The number of training epochs",
         default=config.N_EPOCHS,
         type=int,
     )
     PARSER.add_argument(
-        "--eval-steps",
-        help="The number of evaluation_steps epochs",
-        default=config.N_EVAL_STEPS,
+        "--steps-per-epoch",
+        help="The number of steps per epoch",
+        default=config.N_SAMPLES,
         type=int,
     )
     PARSER.add_argument(
@@ -249,7 +256,7 @@ if __name__ == "__main__":
     tf.compat.v1.logging.set_verbosity("DEBUG")
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
     os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(
-        [str(i) for i in range(FLAGS.gpu_num)]
+        [str(i) for i in range(FLAGS.num_gpus)]
     )
     os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 
@@ -278,7 +285,7 @@ if __name__ == "__main__":
             FLAGS.distribution_strategy
         )
     )
-    if FLAGS.gpu_num > 0:
+    if FLAGS.num_gpus > 0:
         if tf.test.gpu_device_name():
             logging.info("Default GPU: {}".format(tf.test.gpu_device_name()))
             logging.info(

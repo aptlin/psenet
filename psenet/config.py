@@ -2,7 +2,7 @@ import argparse
 
 BACKBONE_NAME = "mobilenetv2"
 BASE_DATA_DIR = "./dist/mlt/preprocessed"
-BATCH_SIZE = 5
+BATCH_SIZE = 2
 BBOX_SIZE = 8
 BBOXES = "bboxes"
 CROP_SIZE = 320
@@ -35,6 +35,7 @@ MODEL_DIR = "./dist/psenet"
 MOMENTUM = 0.99
 MULTIWORKER_MIRRORED_STRATEGY = "multi-worker-mirrored"
 N_EPOCHS = 600
+N_SAMPLES = 10000
 N_EVAL_STEPS = 5
 NUM_BATCHES_TO_SHUFFLE = 4
 NUM_READERS = 1

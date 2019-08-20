@@ -197,14 +197,14 @@ def FPN(
     pyramid_use_batchnorm=True,
     pyramid_aggregation="concat",
     pyramid_dropout=None,
-    **kwargs,
+    **kwargs
 ):
     backbone = Backbones.get_backbone(
         backbone_name,
         input_shape=input_shape,
         weights=encoder_weights,
         include_top=False,
-        **kwargs,
+        **kwargs
     )
 
     if encoder_features == "default":

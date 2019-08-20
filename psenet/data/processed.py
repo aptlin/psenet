@@ -62,7 +62,6 @@ class ProcessedDataset:
 
     def build(self):
         dataset = self._get_all_tfrecords()
-        dataset = dataset.take(1)
 
         if self.input_context:
             dataset = dataset.shard(
