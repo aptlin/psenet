@@ -47,21 +47,23 @@ class ProcessedDataset:
         )
         mask = tf.reshape(mask, [height, width, 1])
         mask = preprocess.scale(mask, resize_length=self.resize_length)
-        mask = tf.squeeze(mask, axis=-1)
 
         labels = tf.sparse.to_dense(parsed_features["labels"], default_value=0)
         labels = tf.reshape(labels, [height, width, self.kernel_num])
         labels = preprocess.scale(labels, resize_length=self.resize_length)
+        labels = tf.concat([mask, labels], axis=-1)
 
-        return ({config.IMAGE: image, config.MASK: mask}, labels)
+        return ({config.IMAGE: image}, labels)
 
     def _get_all_tfrecords(self):
         return tf.data.Dataset.list_files(
-            os.path.join(self.dataset_dir, "*.tfrecord")
+            os.path.join(self.dataset_dir, "*.tfrecord"), shuffle=False
         )
 
     def build(self):
         dataset = self._get_all_tfrecords()
+        dataset = dataset.take(1)
+
         if self.input_context:
             dataset = dataset.shard(
                 self.input_context.num_input_pipelines,
@@ -76,21 +78,22 @@ class ProcessedDataset:
         else:
             logging.info("Received no input context.")
 
-        if self.should_repeat:
-            dataset = dataset.repeat()
-        else:
-            dataset = dataset.repeat(1)
-
         if self.should_shuffle:
             dataset = dataset.shuffle(
                 buffer_size=config.NUM_BATCHES_TO_SHUFFLE * self.batch_size + 1
             )
+
+        if self.should_repeat:
+            dataset = dataset.repeat(None)
+        else:
+            dataset = dataset.repeat(1)
 
         dataset = dataset.interleave(
             tf.data.TFRecordDataset,
             cycle_length=self.num_readers,
             num_parallel_calls=self.num_readers,
         )
+        dataset = dataset.take(2).repeat(None)
 
         dataset = dataset.map(
             self._parse_example, num_parallel_calls=self.num_readers
@@ -99,8 +102,8 @@ class ProcessedDataset:
         dataset = dataset.padded_batch(
             self.batch_size,
             padded_shapes=(
-                {config.IMAGE: [None, None, 3], config.MASK: [None, None]},
-                [None, None, self.kernel_num],
+                {config.IMAGE: [None, None, 3]},
+                [None, None, self.kernel_num + 1],
             ),
         ).prefetch(self.prefetch)
 

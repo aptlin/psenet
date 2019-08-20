@@ -32,19 +32,19 @@ def filter_kernels(labels, predictions, masks):
     return gt_kernel, kernel
 
 
-def filter_input(metric_type):
-    if metric_type == config.KERNEL_METRICS:
+def filter_input(input_type):
+    if input_type == config.KERNEL_METRICS:
         return filter_kernels
-    elif metric_type == config.TEXT_METRICS:
+    elif input_type == config.TEXT_METRICS:
         return filter_texts
     else:
         raise NotImplementedError("The metric type has not been recognised.")
 
 
 def compute_confusion_matrix(
-    labels, predictions, masks, metric_type, n_classes=2
+    labels, predictions, masks, input_type, n_classes=2
 ):
-    y_true, y_pred = filter_input(metric_type)(labels, predictions, masks)
+    y_true, y_pred = filter_input(input_type)(labels, predictions, masks)
 
     def _compute_confusion(ground_truth, prediction):
         mask = tf.logical_and(
@@ -75,49 +75,159 @@ def compute_confusion_matrix(
     return matrix
 
 
+class OverallAccuracy(tf.keras.metrics.Metric):
+    def __init__(self, input_type, name="overall_accuracy", **kwargs):
+        super(OverallAccuracy, self).__init__(
+            name="{}/{}".format(input_type, name), **kwargs
+        )
+        self.overall_accuracy_sum = self.add_weight(
+            name="overall_accuracy_sum", initializer="zeros"
+        )
+        self.count = self.add_weight(
+            name="overall_accuracy_count", initializer="zeros"
+        )
+        self.input_type = input_type
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        masks = y_true[:, :, :, 0]
+        ground_truth = y_true[:, :, :, 1:]
+        value = overall_accuracy(ground_truth, y_pred, masks, self.input_type)
+        self.overall_accuracy_sum.assign_add(value)
+        self.count.assign_add(1.0)
+
+    def result(self):
+        return tf.math.divide_no_nan(self.overall_accuracy_sum, self.count)
+
+    def reset_states(self):
+        # The state of the metric will be reset at the start of each epoch.
+        self.overall_accuracy_sum.assign(0.0)
+        self.count.assign(0.0)
+
+
 def overall_accuracy(
-    labels, predictions, masks, metric_type, epsilon=config.EPSILON
+    labels, predictions, masks, input_type, epsilon=config.EPSILON
 ):
     confusion_matrix = compute_confusion_matrix(
-        labels, predictions, masks, metric_type
+        labels, predictions, masks, input_type
     )
     diagonal = tf.linalg.diag_part(confusion_matrix)
     total_sum = tf.math.reduce_sum(confusion_matrix)
     overall_accuracy = tf.math.divide(
         tf.math.reduce_sum(diagonal), (total_sum + epsilon)
     )
-    return tf.compat.v1.metrics.mean(
-        overall_accuracy, name="{}/{}".format(metric_type, "overall_accuracy")
+    return tf.identity(
+        overall_accuracy, name="{}/{}".format(input_type, "overall_accuracy")
     )
 
 
-def precision(labels, predictions, masks, metric_type, epsilon=config.EPSILON):
+class Precision(tf.keras.metrics.Metric):
+    def __init__(self, input_type, name="precision", **kwargs):
+        super(Precision, self).__init__(
+            name="{}/{}".format(input_type, name), **kwargs
+        )
+        self.precision_sum = self.add_weight(
+            name="precision_sum", initializer="zeros"
+        )
+        self.count = self.add_weight(
+            name="precision_count", initializer="zeros"
+        )
+        self.input_type = input_type
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        masks = y_true[:, :, :, 0]
+        ground_truth = y_true[:, :, :, 1:]
+        value = precision(ground_truth, y_pred, masks, self.input_type)
+        self.precision_sum.assign_add(value)
+        self.count.assign_add(1.0)
+
+    def result(self):
+        return tf.math.divide_no_nan(self.precision_sum, self.count)
+
+    def reset_states(self):
+        # The state of the metric will be reset at the start of each epoch.
+        self.precision_sum.assign(0.0)
+        self.count.assign(0.0)
+
+
+def precision(labels, predictions, masks, input_type, epsilon=config.EPSILON):
     confusion_matrix = compute_confusion_matrix(
-        labels, predictions, masks, metric_type
+        labels, predictions, masks, input_type
     )
     diagonal = tf.linalg.diag_part(confusion_matrix)
     col_sum = tf.math.reduce_sum(confusion_matrix, axis=0)
     precision = diagonal[0] / (col_sum[0] + epsilon)
-    return tf.compat.v1.metrics.mean(
-        precision, name="{}/{}".format(metric_type, "precision")
-    )
+    return tf.identity(precision, name="{}/{}".format(input_type, "precision"))
 
 
-def recall(labels, predictions, masks, metric_type, epsilon=config.EPSILON):
+class Recall(tf.keras.metrics.Metric):
+    def __init__(self, input_type, name="recall", **kwargs):
+        super(Recall, self).__init__(
+            name="{}/{}".format(input_type, name), **kwargs
+        )
+        self.recall_sum = self.add_weight(
+            name="recall_sum", initializer="zeros"
+        )
+        self.count = self.add_weight(name="recall_count", initializer="zeros")
+        self.input_type = input_type
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        masks = y_true[:, :, :, 0]
+        ground_truth = y_true[:, :, :, 1:]
+        value = recall(ground_truth, y_pred, masks, self.input_type)
+        self.recall_sum.assign_add(value)
+        self.count.assign_add(1.0)
+
+    def result(self):
+        return tf.math.divide_no_nan(self.recall_sum, self.count)
+
+    def reset_states(self):
+        # The state of the metric will be reset at the start of each epoch.
+        self.recall_sum.assign(0.0)
+        self.count.assign(0.0)
+
+
+def recall(labels, predictions, masks, input_type, epsilon=config.EPSILON):
     confusion_matrix = compute_confusion_matrix(
-        labels, predictions, masks, metric_type
+        labels, predictions, masks, input_type
     )
     diagonal = tf.linalg.diag_part(confusion_matrix)
     row_sum = tf.math.reduce_sum(confusion_matrix, axis=1)
     recall = diagonal[0] / (row_sum[0] + epsilon)
-    return tf.compat.v1.metrics.mean(
-        recall, name="{}/{}".format(metric_type, "recall")
-    )
+    return tf.identity(recall, name="{}/{}".format(input_type, "recall"))
 
 
-def f1_score(labels, predictions, masks, metric_type, epsilon=config.EPSILON):
+class F1Score(tf.keras.metrics.Metric):
+    def __init__(self, input_type, name="f1_score", **kwargs):
+        super(F1Score, self).__init__(
+            name="{}/{}".format(input_type, name), **kwargs
+        )
+        self.f1_score_sum = self.add_weight(
+            name="f1_score_sum", initializer="zeros"
+        )
+        self.count = self.add_weight(
+            name="f1_score_count", initializer="zeros"
+        )
+        self.input_type = input_type
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        masks = y_true[:, :, :, 0]
+        ground_truth = y_true[:, :, :, 1:]
+        value = f1_score(ground_truth, y_pred, masks, self.input_type)
+        self.f1_score_sum.assign_add(value)
+        self.count.assign_add(1.0)
+
+    def result(self):
+        return tf.math.divide_no_nan(self.f1_score_sum, self.count)
+
+    def reset_states(self):
+        # The state of the metric will be reset at the start of each epoch.
+        self.f1_score_sum.assign(0.0)
+        self.count.assign(0.0)
+
+
+def f1_score(labels, predictions, masks, input_type, epsilon=config.EPSILON):
     confusion_matrix = compute_confusion_matrix(
-        labels, predictions, masks, metric_type
+        labels, predictions, masks, input_type
     )
     diagonal = tf.linalg.diag_part(confusion_matrix)
     col_sum = tf.math.reduce_sum(confusion_matrix, axis=0)
@@ -125,44 +235,133 @@ def f1_score(labels, predictions, masks, metric_type, epsilon=config.EPSILON):
     precision = diagonal[0] / (col_sum[0] + epsilon)
     recall = diagonal[0] / (row_sum[0] + epsilon)
     f1_score = 2 * precision * recall / (precision + recall + epsilon)
-    return tf.compat.v1.metrics.mean(
-        f1_score, name="{}/{}".format(metric_type, "f1_score")
-    )
+    return tf.identity(f1_score, name="{}/{}".format(input_type, "f1_score"))
+
+
+class MeanAccuracy(tf.keras.metrics.Metric):
+    def __init__(self, input_type, name="mean_accuracy", **kwargs):
+        super(MeanAccuracy, self).__init__(
+            name="{}/{}".format(input_type, name), **kwargs
+        )
+        self.mean_accuracy_sum = self.add_weight(
+            name="mean_accuracy_sum", initializer="zeros"
+        )
+        self.count = self.add_weight(
+            name="mean_accuracy_count", initializer="zeros"
+        )
+        self.input_type = input_type
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        masks = y_true[:, :, :, 0]
+        ground_truth = y_true[:, :, :, 1:]
+        value = mean_accuracy(ground_truth, y_pred, masks, self.input_type)
+        self.mean_accuracy_sum.assign_add(value)
+        self.count.assign_add(1.0)
+
+    def result(self):
+        return tf.math.divide_no_nan(self.mean_accuracy_sum, self.count)
+
+    def reset_states(self):
+        # The state of the metric will be reset at the start of each epoch.
+        self.mean_accuracy_sum.assign(0.0)
+        self.count.assign(0.0)
 
 
 def mean_accuracy(
-    labels, predictions, masks, metric_type, epsilon=config.EPSILON
+    labels, predictions, masks, input_type, epsilon=config.EPSILON
 ):
     confusion_matrix = compute_confusion_matrix(
-        labels, predictions, masks, metric_type
+        labels, predictions, masks, input_type
     )
     diagonal = tf.linalg.diag_part(confusion_matrix)
     row_sum = tf.math.reduce_sum(confusion_matrix, axis=1)
     mean_accuracy = tf.math.reduce_mean(diagonal / (row_sum + epsilon))
-    return tf.compat.v1.metrics.mean(
-        mean_accuracy, name="{}/{}".format(metric_type, "mean_accuracy")
+    return tf.identity(
+        mean_accuracy, name="{}/{}".format(input_type, "mean_accuracy")
     )
 
 
-def mean_iou(labels, predictions, masks, metric_type, epsilon=config.EPSILON):
+class MeanIoU(tf.keras.metrics.Metric):
+    def __init__(self, input_type, name="mean_iou", **kwargs):
+        super(MeanIoU, self).__init__(
+            name="{}/{}".format(input_type, name), **kwargs
+        )
+        self.mean_iou_sum = self.add_weight(
+            name="mean_iou_sum", initializer="zeros"
+        )
+        self.count = self.add_weight(
+            name="mean_iou_count", initializer="zeros"
+        )
+        self.input_type = input_type
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        masks = y_true[:, :, :, 0]
+        ground_truth = y_true[:, :, :, 1:]
+        value = mean_iou(ground_truth, y_pred, masks, self.input_type)
+        self.mean_iou_sum.assign_add(value)
+        self.count.assign_add(1.0)
+
+    def result(self):
+        return tf.math.divide_no_nan(self.mean_iou_sum, self.count)
+
+    def reset_states(self):
+        # The state of the metric will be reset at the start of each epoch.
+        self.mean_iou_sum.assign(0.0)
+        self.count.assign(0.0)
+
+
+def mean_iou(labels, predictions, masks, input_type, epsilon=config.EPSILON):
     confusion_matrix = compute_confusion_matrix(
-        labels, predictions, masks, metric_type
+        labels, predictions, masks, input_type
     )
     diagonal = tf.linalg.diag_part(confusion_matrix)
     row_sum = tf.math.reduce_sum(confusion_matrix, axis=1)
     col_sum = tf.math.reduce_sum(confusion_matrix, axis=0)
     iou = diagonal / (row_sum + col_sum - diagonal + epsilon)
     mean_iou = tf.math.reduce_mean(iou)
-    return tf.compat.v1.metrics.mean(
-        mean_iou, name="{}/{}".format(metric_type, "mean_iou")
-    )
+    return tf.identity(mean_iou, name="{}/{}".format(input_type, "mean_iou"))
+
+
+class FrequencyWeightedAccuracy(tf.keras.metrics.Metric):
+    def __init__(
+        self, input_type, name="frequency_weighted_accuracy", **kwargs
+    ):
+        super(FrequencyWeightedAccuracy, self).__init__(
+            name="{}/{}".format(input_type, name), **kwargs
+        )
+        self.frequency_weighted_accuracy_sum = self.add_weight(
+            name="frequency_weighted_accuracy_sum", initializer="zeros"
+        )
+        self.count = self.add_weight(
+            name="frequency_weighted_accuracy_count", initializer="zeros"
+        )
+        self.input_type = input_type
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        masks = y_true[:, :, :, 0]
+        ground_truth = y_true[:, :, :, 1:]
+        value = frequency_weighted_accuracy(
+            ground_truth, y_pred, masks, self.input_type
+        )
+        self.frequency_weighted_accuracy_sum.assign_add(value)
+        self.count.assign_add(1.0)
+
+    def result(self):
+        return tf.math.divide_no_nan(
+            self.frequency_weighted_accuracy_sum, self.count
+        )
+
+    def reset_states(self):
+        # The state of the metric will be reset at the start of each epoch.
+        self.frequency_weighted_accuracy_sum.assign(0.0)
+        self.count.assign(0.0)
 
 
 def frequency_weighted_accuracy(
-    labels, predictions, masks, metric_type, epsilon=config.EPSILON
+    labels, predictions, masks, input_type, epsilon=config.EPSILON
 ):
     confusion_matrix = compute_confusion_matrix(
-        labels, predictions, masks, metric_type
+        labels, predictions, masks, input_type
     )
     diagonal = tf.linalg.diag_part(confusion_matrix)
     columns = tf.math.reduce_sum(confusion_matrix, axis=1)
@@ -174,45 +373,108 @@ def frequency_weighted_accuracy(
         tf.boolean_mask(frequency, tf.greater(frequency, 0))
         * tf.boolean_mask(iou, tf.greater(frequency, 0))
     )
-    return tf.compat.v1.metrics.mean(
-        fwaccuracy, name="{}/{}".format(metric_type, "fwaccuracy")
+    return tf.identity(
+        fwaccuracy, name="{}/{}".format(input_type, "fwaccuracy")
     )
 
 
-def build_metrics(labels, predictions, masks):
+def keras_psenet_metrics():
+    ingots = [
+        OverallAccuracy,
+        MeanAccuracy,
+        MeanIoU,
+        FrequencyWeightedAccuracy,
+        Precision,
+        Recall,
+        F1Score,
+    ]
+    kernel_metrics_type = config.KERNEL_METRICS
+    kernel_metrics = [Metric(kernel_metrics_type) for Metric in ingots]
+    text_metrics_type = config.TEXT_METRICS
+    text_metrics = [Metric(text_metrics_type) for Metric in ingots]
+    return [*kernel_metrics, *text_metrics]
+    # kernel_metrics_type = config.KERNEL_METRICS
+    # kernel_overall_accuracy = OverallAccuracy(kernel_metrics_type)
+    # kernel_mean_accuracy = MeanAccuracy(kernel_metrics_type)
+    # kernel_mean_iou = MeanIoU(kernel_metrics_type)
+    # kernel_fwaccuracy = FrequencyWeightedAccuracy(kernel_metrics_type)
+    # kernel_precision = Precision(kernel_metrics_type)
+    # kernel_recall = Recall(kernel_metrics_type)
+    # kernel_f1_score = F1Score(kernel_metrics_type)
+    # text_metrics_type = config.TEXT_METRICS
+    # text_overall_accuracy = OverallAccuracy(text_metrics_type)
+    # text_mean_accuracy = MeanAccuracy(text_metrics_type)
+    # text_mean_iou = MeanIoU(text_metrics_type)
+    # text_fwaccuracy = FrequencyWeightedAccuracy(text_metrics_type)
+    # text_precision = Precision(text_metrics_type)
+    # text_recall = Recall(text_metrics_type)
+    # text_f1_score = F1Score(text_metrics_type)
+    # return [
+    #     kernel_overall_accuracy,
+    #     kernel_mean_accuracy,
+    #     kernel_mean_iou,
+    #     kernel_fwaccuracy,
+    #     kernel_precision,
+    #     kernel_recall,
+    #     kernel_f1_score,
+    #     text_overall_accuracy,
+    #     text_mean_accuracy,
+    #     text_mean_iou,
+    #     text_fwaccuracy,
+    #     text_precision,
+    #     text_recall,
+    #     text_f1_score,
+    # ]
+
+
+def psenet_metrics(labels, predictions):
+    masks = labels[:, :, :, 0]
+    ground_truth = labels[:, :, :, 1:]
     kernel_metrics_type = config.KERNEL_METRICS
     kernel_overall_accuracy = overall_accuracy(
-        labels, predictions, masks, kernel_metrics_type
+        ground_truth, predictions, masks, kernel_metrics_type
     )
     kernel_mean_accuracy = mean_accuracy(
-        labels, predictions, masks, kernel_metrics_type
+        ground_truth, predictions, masks, kernel_metrics_type
     )
-    kernel_mean_iou = mean_iou(labels, predictions, masks, kernel_metrics_type)
+    kernel_mean_iou = mean_iou(
+        ground_truth, predictions, masks, kernel_metrics_type
+    )
     kernel_fwaccuracy = frequency_weighted_accuracy(
-        labels, predictions, masks, kernel_metrics_type
+        ground_truth, predictions, masks, kernel_metrics_type
     )
     kernel_precision = precision(
-        labels, predictions, masks, kernel_metrics_type
+        ground_truth, predictions, masks, kernel_metrics_type
     )
-    kernel_recall = recall(labels, predictions, masks, kernel_metrics_type)
-    kernel_f1_score = f1_score(labels, predictions, masks, kernel_metrics_type)
+    kernel_recall = recall(
+        ground_truth, predictions, masks, kernel_metrics_type
+    )
+    kernel_f1_score = f1_score(
+        ground_truth, predictions, masks, kernel_metrics_type
+    )
 
     text_metrics_type = config.TEXT_METRICS
     text_overall_accuracy = overall_accuracy(
-        labels, predictions, masks, text_metrics_type
+        ground_truth, predictions, masks, text_metrics_type
     )
     text_mean_accuracy = mean_accuracy(
-        labels, predictions, masks, text_metrics_type
+        ground_truth, predictions, masks, text_metrics_type
     )
-    text_mean_iou = mean_iou(labels, predictions, masks, text_metrics_type)
+    text_mean_iou = mean_iou(
+        ground_truth, predictions, masks, text_metrics_type
+    )
     text_fwaccuracy = frequency_weighted_accuracy(
-        labels, predictions, masks, text_metrics_type
+        ground_truth, predictions, masks, text_metrics_type
     )
-    text_precision = precision(labels, predictions, masks, text_metrics_type)
-    text_recall = recall(labels, predictions, masks, text_metrics_type)
-    text_f1_score = f1_score(labels, predictions, masks, text_metrics_type)
+    text_precision = precision(
+        ground_truth, predictions, masks, text_metrics_type
+    )
+    text_recall = recall(ground_truth, predictions, masks, text_metrics_type)
+    text_f1_score = f1_score(
+        ground_truth, predictions, masks, text_metrics_type
+    )
 
-    comuputed_metrics = {
+    computed_metrics = {
         "{}/kernel_overall_accuracy".format(
             kernel_metrics_type
         ): kernel_overall_accuracy,
@@ -235,4 +497,4 @@ def build_metrics(labels, predictions, masks):
         "{}/text_f1_score".format(text_metrics_type): text_f1_score,
     }
 
-    return comuputed_metrics
+    return computed_metrics

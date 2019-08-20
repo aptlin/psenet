@@ -181,7 +181,7 @@ class RawDataset:
             logging.info("Received no input context.")
 
         if self.should_repeat:
-            dataset = dataset.repeat()
+            dataset = dataset.repeat(None)
         else:
             dataset = dataset.repeat(1)
 

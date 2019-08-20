@@ -7,18 +7,12 @@ def build_eval_exporter():
         features = {
             config.IMAGE: tf.compat.v1.placeholder(
                 dtype=tf.float32, shape=[None, None, None, 3]
-            ),
-            config.MASK: tf.compat.v1.placeholder(
-                dtype=tf.float32, shape=[None, None, None]
-            ),
+            )
         }
         receiver_tensors = {
             config.IMAGE: tf.compat.v1.placeholder(
                 dtype=tf.float32, shape=[None, None, None, 3]
-            ),
-            config.MASK: tf.compat.v1.placeholder(
-                dtype=tf.float32, shape=[None, None, None]
-            ),
+            )
         }
         return tf.estimator.export.ServingInputReceiver(
             features, receiver_tensors

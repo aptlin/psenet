@@ -1,5 +1,4 @@
 import argparse
-import copy
 import json
 import os
 
@@ -9,74 +8,69 @@ from tensorflow.python.platform import tf_logging as logging
 
 from psenet import config
 from psenet.data import DATASETS, build_input_fn
-from psenet.eval import build_eval_exporter
-from psenet.model import model_fn
+from psenet.model import build_model
+
+from psenet.metrics import keras_psenet_metrics
+from psenet.losses import psenet_loss
 
 
-def train_and_evaluate(FLAGS):
+def build_callbacks(FLAGS):
+    checkpoint_prefix = os.path.join(FLAGS.job_dir, "psenet_{epoch}")
+    log_dir = os.path.join(FLAGS.job_dir, "logs")
+    callbacks = [
+        tf.keras.callbacks.TensorBoard(
+            log_dir=log_dir, update_freq="batch", write_images=True
+        ),
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=checkpoint_prefix, save_weights_only=True
+        ),
+    ]
 
-    TRAIN_FLAGS = copy.deepcopy(FLAGS)
-    TRAIN_FLAGS.mode = tf.estimator.ModeKeys.TRAIN
-    train_spec = tf.estimator.TrainSpec(
-        input_fn=build_input_fn(TRAIN_FLAGS), max_steps=FLAGS.train_steps
+    return callbacks
+
+
+def build_optimizer(params):
+    return tf.keras.optimizers.SGD(
+        learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
+            params.learning_rate,
+            decay_steps=params.decay_steps,
+            decay_rate=params.decay_rate,
+            staircase=True,
+        ),
+        momentum=config.MOMENTUM,
     )
 
-    EVAL_FLAGS = copy.deepcopy(FLAGS)
-    EVAL_FLAGS.mode = tf.estimator.ModeKeys.EVAL
-    eval_exporter = build_eval_exporter()
-    eval_spec = tf.estimator.EvalSpec(
-        input_fn=build_input_fn(EVAL_FLAGS),
-        exporters=eval_exporter,
-        steps=FLAGS.eval_steps,
-        start_delay_secs=FLAGS.eval_start_delay_secs,
-        throttle_secs=FLAGS.eval_throttle_secs,
-    )
 
-    if FLAGS.distribution_strategy == config.MIRRORED_STRATEGY:
-        strategy = tf.distribute.MirroredStrategy()
-    else:
-        strategy = tf.distribute.experimental.MultiWorkerMirroredStrategy()
+def train(FLAGS):
+
+    FLAGS.mode = tf.estimator.ModeKeys.TRAIN
 
     params = tf.contrib.training.HParams(
         backbone_name=FLAGS.backbone_name,
         decay_rate=FLAGS.decay_rate,
         decay_steps=FLAGS.decay_steps,
-        encoder_weights=None,
+        encoder_weights="imagenet",
         kernel_num=FLAGS.kernel_num,
         learning_rate=FLAGS.learning_rate,
         regularization_weight_decay=FLAGS.regularization_weight_decay,
     )
 
-    run_config = tf.estimator.RunConfig(
-        model_dir=FLAGS.job_dir,
-        save_checkpoints_steps=FLAGS.save_checkpoints_steps,
-        save_summary_steps=FLAGS.save_summary_steps,
-        train_distribute=strategy,
-        eval_distribute=strategy,
-        keep_checkpoint_max=10,
-        session_config=tf.compat.v1.ConfigProto(
-            allow_soft_placement=True,
-            device_count={"GPU": FLAGS.gpu_per_worker},
-            gpu_options=tf.compat.v1.GPUOptions(
-                allow_growth=True,
-                visible_device_list=",".join(
-                    [str(i) for i in range(FLAGS.gpu_per_worker)]
-                ),
-            ),
-        ),
+    with tf.device("/device:CPU:0"):
+        model = build_model(params)
+
+    model.compile(
+        loss=psenet_loss,
+        optimizer=build_optimizer(params),
+        metrics=keras_psenet_metrics(),
     )
 
-    estimator = tf.estimator.Estimator(
-        model_fn=model_fn,
-        model_dir=FLAGS.job_dir,
-        config=run_config,
-        params=params,
-        warm_start_from=tf.estimator.WarmStartSettings(
-            ckpt_to_initialize_from=FLAGS.warm_ckpt
-        ),
+    model.fit(
+        build_input_fn(FLAGS)(),
+        epochs=60,
+        steps_per_epoch=5,
+        callbacks=build_callbacks(FLAGS),
+        verbose=2,
     )
-
-    tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
 
 
 if __name__ == "__main__":
@@ -163,7 +157,7 @@ if __name__ == "__main__":
         type=int,
     )
     PARSER.add_argument(
-        "--gpu-per-worker",
+        "--gpu-num",
         help="The number of GPUs to use",
         default=config.GPU_PER_WORKER,
         type=int,
@@ -255,7 +249,7 @@ if __name__ == "__main__":
     tf.compat.v1.logging.set_verbosity("DEBUG")
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
     os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(
-        [str(i) for i in range(FLAGS.gpu_per_worker)]
+        [str(i) for i in range(FLAGS.gpu_num)]
     )
     os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 
@@ -279,7 +273,12 @@ if __name__ == "__main__":
     elif FLAGS.distribution_strategy != config.MIRRORED_STRATEGY:
         raise ValueError("Got an unexpected distribution strategy, aborting.")
 
-    if FLAGS.gpu_per_worker > 0:
+    logging.info(
+        "Using the {} distribution strategy".format(
+            FLAGS.distribution_strategy
+        )
+    )
+    if FLAGS.gpu_num > 0:
         if tf.test.gpu_device_name():
             logging.info("Default GPU: {}".format(tf.test.gpu_device_name()))
             logging.info(
@@ -288,4 +287,4 @@ if __name__ == "__main__":
         else:
             raise RuntimeError("Failed to find the default GPU.")
 
-    train_and_evaluate(FLAGS)
+    train(FLAGS)

@@ -139,5 +139,11 @@ if __name__ == "__main__":
         default=config.REGULARIZATION_WEIGHT_DECAY,
         type=float,
     )
+    PARSER.add_argument(
+        "--resize-length",
+        help="The maximum side length of the resized input images",
+        default=config.RESIZE_LENGTH,
+        type=int,
+    )
     FLAGS, _ = PARSER.parse_known_args()
     save_checkpoint(FLAGS)

@@ -1,17 +1,20 @@
 import tensorflow as tf
 from psenet import config
-from psenet.model import model_fn
+from psenet.model import build_model
 import argparse
 
 
 def build_eval_estimator(FLAGS):
     params = tf.contrib.training.HParams(
-        kernel_num=7, backbone_name=FLAGS.backbone_name, encoder_weights=None
+        kernel_num=7,
+        backbone_name=FLAGS.backbone_name,
+        encoder_weights="imagenet",
+    )
+    model = build_model(params)
+    estimator = tf.keras.estimator.model_to_estimator(
+        keras_model=model, model_dir=FLAGS.source_dir
     )
 
-    estimator = tf.estimator.Estimator(
-        model_fn=model_fn, model_dir=FLAGS.source_dir, params=params
-    )
     return estimator
 
 

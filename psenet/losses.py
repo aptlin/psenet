@@ -1,20 +1,28 @@
 import psenet.config as config
 import tensorflow as tf
 
+# import segmentation_models as sm
+
 
 def dice_loss(labels, predictions, masks):
     predictions = tf.math.sigmoid(predictions)
 
+    batch_size = tf.shape(labels)[0]
+    labels = tf.reshape(labels, [batch_size, -1])
+    predictions = tf.reshape(predictions, [batch_size, -1])
+    masks = tf.reshape(masks, [batch_size, -1])
+
     labels *= masks
     predictions *= masks
 
-    a = tf.math.reduce_sum(predictions * labels, axis=1)
-    b = tf.math.reduce_sum(predictions * predictions, axis=1) + config.EPSILON
-    c = tf.math.reduce_sum(labels * labels, axis=1) + config.EPSILON
+    intersection = tf.math.reduce_sum(predictions * labels, axis=1)
+    union = (
+        tf.math.reduce_sum(labels * labels, axis=1)
+        + tf.math.reduce_sum(predictions * predictions, axis=1)
+        + config.EPSILON
+    )
 
-    d = (2 * a) / (b + c)
-    loss = tf.math.reduce_mean(d)
-    return 1.0 - loss
+    return 1.0 - 2.0 * tf.math.reduce_mean(intersection / union)
 
 
 def ohem_single(labels, predictions, masks):
@@ -87,12 +95,15 @@ def ohem_batch(labels, predictions, masks):
     return selected_masks
 
 
-def compute_loss(labels, predictions, masks):
+def psenet_loss(labels, predictions):
+    masks = labels[:, :, :, 0]
+    ground_truth = labels[:, :, :, 1:]
+
     predicted_texts = predictions[:, :, :, 0]
-    ground_truth_texts = labels[:, :, :, 0]
+    ground_truth_texts = ground_truth[:, :, :, 0]
 
     predicted_kernels = predictions[:, :, :, 1:]
-    ground_truth_kernels = labels[:, :, :, 1:]
+    ground_truth_kernels = ground_truth[:, :, :, 1:]
 
     # compute text loss
     text_masks = ohem_batch(ground_truth_texts, predicted_texts, masks)
@@ -127,4 +138,4 @@ def compute_loss(labels, predictions, masks):
         [current_loss] + tf.compat.v1.losses.get_regularization_losses()
     )
 
-    return text_loss, kernel_loss, current_loss
+    return current_loss
