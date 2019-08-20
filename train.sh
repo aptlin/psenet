@@ -13,7 +13,7 @@ gcloud ai-platform jobs submit training $JOB_ID \
     --train-steps 10000 \
     --eval-steps 10 \
     --kernels-num 7 \
-    --batch-size 16 \
+    --batch-size 8 \
     --training-data-dir gs://gsoc-tfjs/data/icdar/mlt/2019/tfrecords/train \
     --eval-data-dir gs://gsoc-tfjs/data/icdar/mlt/2019/tfrecords/eval \
     --backbone-name mobilenetv2 \
@@ -25,5 +25,5 @@ gcloud ai-platform jobs submit training $JOB_ID \
     --save-checkpoints-secs 120 \
     --save-summary-steps 100 \
     --readers-num 16 \
-    --resize-length 640 \
+    --resize-length 320 \
     --gpus-num 2
