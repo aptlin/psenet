@@ -1,5 +1,4 @@
 import argparse
-import json
 import os
 
 import tensorflow as tf
@@ -18,9 +17,7 @@ def build_callbacks(FLAGS):
     checkpoint_prefix = os.path.join(FLAGS.job_dir, "psenet_{epoch}")
     log_dir = os.path.join(FLAGS.job_dir, "logs")
     callbacks = [
-        tf.keras.callbacks.TensorBoard(
-            log_dir=log_dir, update_freq="batch", write_images=True
-        ),
+        tf.keras.callbacks.TensorBoard(log_dir=log_dir, write_graph=False),
         tf.keras.callbacks.ModelCheckpoint(
             filepath=checkpoint_prefix, save_weights_only=True
         ),
@@ -248,31 +245,6 @@ if __name__ == "__main__":
     )
     os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 
-    if FLAGS.distribution_strategy == config.MULTIWORKER_MIRRORED_STRATEGY:
-        tf_config = json.loads(os.environ.get("TF_CONFIG", "{}"))
-        if (
-            "task" in tf_config
-            and "type" in tf_config["task"]
-            and tf_config["task"]["type"] == "master"
-        ):
-            tf_config["task"]["type"] = "chief"
-        if "cluster" in tf_config and "master" in tf_config["cluster"]:
-            master_cluster = tf_config["cluster"].pop("master")
-            tf_config["cluster"]["chief"] = master_cluster
-        os.environ["TF_CONFIG"] = json.dumps(tf_config)
-        logging.info(
-            "Changed the config to {}".format(
-                json.loads(os.environ.get("TF_CONFIG", "{}"))
-            )
-        )
-    elif FLAGS.distribution_strategy != config.MIRRORED_STRATEGY:
-        raise ValueError("Got an unexpected distribution strategy, aborting.")
-
-    logging.info(
-        "Using the {} distribution strategy".format(
-            FLAGS.distribution_strategy
-        )
-    )
     if FLAGS.num_gpus > 0:
         if tf.test.gpu_device_name():
             logging.info("Default GPU: {}".format(tf.test.gpu_device_name()))

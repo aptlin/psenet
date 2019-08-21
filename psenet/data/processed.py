@@ -92,7 +92,7 @@ class ProcessedDataset:
             cycle_length=self.num_readers,
             num_parallel_calls=self.num_readers,
         )
-        dataset = dataset.take(2).repeat(None)
+        dataset = dataset.repeat(None)
 
         dataset = dataset.map(
             self._parse_example, num_parallel_calls=self.num_readers
