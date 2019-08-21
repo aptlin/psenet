@@ -372,7 +372,7 @@ if __name__ == "__main__":
         "--keep-checkpoint-every-n-hours",
         help="Number of hours between each checkpoint to be saved",
         default=config.KEEP_CHECKPOINT_EVERY_N_HOURS,
-        type=int,
+        type=float,
     )
     PARSER.add_argument(
         "--eval-start-delay-secs",

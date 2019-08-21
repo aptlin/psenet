@@ -1,6 +1,6 @@
 #!/bin/bash
 
-JOB_ID=psenet_rc174
+JOB_ID=psenet_rc177
 gcloud ai-platform jobs submit training $JOB_ID \
     --job-dir gs://gsoc-tfjs/weights/psenet/custom/$JOB_ID \
     --module-name psenet.train \
