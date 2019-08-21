@@ -3,7 +3,7 @@
 # the checkpoint with mobilenet weights:
 #gs://gsoc-tfjs/weights/psenet/warm/segmentation_filters_128
 
-JOB_ID=psenet_rc172
+JOB_ID=psenet_rc176
 gcloud ai-platform jobs submit training $JOB_ID \
     --job-dir gs://gsoc-tfjs/weights/psenet/custom/$JOB_ID \
     --module-name psenet.train \

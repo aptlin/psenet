@@ -5,7 +5,7 @@ REQUIRED_PACKAGES = [
     "opencv-python",
     "Polygon3",
     "pyclipper",
-    "tensorflow-gpu",
+    "tensorflow-gpu==2.0.0-beta1",
 ]
 
 setup(

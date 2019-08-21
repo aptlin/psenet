@@ -29,12 +29,12 @@ def build_callbacks(FLAGS):
     return callbacks
 
 
-def build_optimizer(params):
+def build_optimizer(FLAGS):
     return tf.keras.optimizers.SGD(
         learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
-            params.learning_rate,
-            decay_steps=params.decay_steps,
-            decay_rate=params.decay_rate,
+            FLAGS.learning_rate,
+            decay_steps=FLAGS.decay_steps,
+            decay_rate=FLAGS.decay_rate,
             staircase=True,
         ),
         momentum=config.MOMENTUM,
@@ -47,25 +47,17 @@ def train(FLAGS):
     logging.info(
         "Number of replicas in sync: {}".format(strategy.num_replicas_in_sync)
     )
-    FLAGS.mode = tf.estimator.ModeKeys.TRAIN
 
-    params = tf.contrib.training.HParams(
-        backbone_name=FLAGS.backbone_name,
-        decay_rate=FLAGS.decay_rate,
-        decay_steps=FLAGS.decay_steps,
-        encoder_weights="imagenet",
-        kernel_num=FLAGS.kernel_num,
-        learning_rate=FLAGS.learning_rate,
-        regularization_weight_decay=FLAGS.regularization_weight_decay,
-    )
+    FLAGS.mode = tf.estimator.ModeKeys.TRAIN
+    FLAGS.encoder_weights = "imagenet"
+
     data = build_input_fn(FLAGS)()
     with strategy.scope():
-        model = build_model(params)
+        model = build_model(FLAGS)
         model.compile(
             loss=psenet_loss,
-            optimizer=build_optimizer(params),
+            optimizer=build_optimizer(FLAGS),
             metrics=keras_psenet_metrics(),
-            experimental_run_tf_function=True,
         )
         model.fit(
             data,
