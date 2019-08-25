@@ -2,7 +2,7 @@ import argparse
 
 BACKBONE_NAME = "mobilenetv2"
 BASE_DATA_DIR = "./dist/mlt/preprocessed"
-BATCH_SIZE = 2
+BATCH_SIZE = 1
 BBOX_SIZE = 8
 BBOXES = "bboxes"
 CROP_SIZE = 320
@@ -49,7 +49,7 @@ REGULARIZATION_WEIGHT_DECAY = 5e-4
 RESIZE_LENGTH = 320
 SAVE_CHECKPOINTS_STEPS = 5
 SAVE_SUMMARY_STEPS = 5
-SAVED_MODEL_DIR = "./dist/psenet/saved_model"
+SAVED_MODEL_DIR = "./scratchpad/psenet-rc185-v1"
 TAGS = "tags"
 TEXT = "text"
 TEXT_LOSS_WEIGHT = 0.7

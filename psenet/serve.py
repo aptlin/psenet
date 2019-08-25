@@ -4,33 +4,16 @@ from psenet.model import build_model
 import argparse
 
 
-def build_eval_estimator(FLAGS):
+def export_saved_model(FLAGS):
     params = tf.contrib.training.HParams(
         kernel_num=7,
         backbone_name=FLAGS.backbone_name,
         encoder_weights="imagenet",
     )
     model = build_model(params)
-    estimator = tf.keras.estimator.model_to_estimator(
-        keras_model=model, model_dir=FLAGS.source_dir
-    )
-
-    return estimator
-
-
-def export_saved_model(FLAGS):
-    features = {
-        config.IMAGE: tf.compat.v1.placeholder(
-            dtype=tf.float32, shape=[None, None, None, 3], name=config.IMAGE
-        )
-    }
-    estimator = build_eval_estimator(FLAGS)
-    estimator.export_saved_model(
-        FLAGS.target_dir,
-        tf.estimator.export.build_raw_serving_input_receiver_fn(
-            features, default_batch_size=None
-        ),
-    )
+    latest_checkpoint = tf.train.latest_checkpoint(FLAGS.source_dir)
+    model.load_weights(latest_checkpoint)
+    tf.keras.experimental.export_saved_model(model, FLAGS.target_dir)
 
 
 if __name__ == "__main__":

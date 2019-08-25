@@ -7,10 +7,10 @@ from tensorflow.python.platform import tf_logging as logging
 
 from psenet import config
 from psenet.data import DATASETS, build_input_fn
-from psenet.model import build_model
-
-from psenet.metrics import keras_psenet_metrics
 from psenet.losses import psenet_loss
+from psenet.metrics import keras_psenet_metrics
+from psenet.model import build_model
+from psenet.optimizers import build_optimizer
 
 
 def build_callbacks(FLAGS):
@@ -26,20 +26,7 @@ def build_callbacks(FLAGS):
     return callbacks
 
 
-def build_optimizer(FLAGS):
-    return tf.keras.optimizers.SGD(
-        learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
-            FLAGS.learning_rate,
-            decay_steps=FLAGS.decay_steps,
-            decay_rate=FLAGS.decay_rate,
-            staircase=True,
-        ),
-        momentum=config.MOMENTUM,
-    )
-
-
 def train(FLAGS):
-
     strategy = tf.distribute.MirroredStrategy()
     logging.info(
         "Number of replicas in sync: {}".format(strategy.num_replicas_in_sync)
@@ -51,6 +38,8 @@ def train(FLAGS):
     data = build_input_fn(FLAGS)()
     with strategy.scope():
         model = build_model(FLAGS)
+        if FLAGS.use_pretrained:
+            model.load_weights(FLAGS.warm_checkpoint, by_name=True)
         model.compile(
             loss=psenet_loss,
             optimizer=build_optimizer(FLAGS),
@@ -67,6 +56,31 @@ def train(FLAGS):
 
 if __name__ == "__main__":
     PARSER = argparse.ArgumentParser()
+    PARSER.add_argument(
+        "--batch-size",
+        help="The batch size for training and evaluation",
+        default=config.BATCH_SIZE,
+        type=int,
+    )
+    PARSER.add_argument(
+        "--backbone-name",
+        help="""The name of the FPN backbone. Must be one of the following:
+                - 'inceptionresnetv2',
+                - 'inceptionv3',
+                - 'resnext50',
+                - 'resnext101',
+                - 'mobilenet',
+                - 'mobilenetv2',
+                - 'efficientnetb0',
+                - 'efficientnetb1',
+                - 'efficientnetb2',
+                - 'efficientnetb3',
+                - 'efficientnetb4',
+                - 'efficientnetb5'
+        """,
+        default=config.BACKBONE_NAME,
+        type=str,
+    )
     PARSER.add_argument(
         "--dataset",
         help="The dataset to load. Must be one of {}.".format(
@@ -98,25 +112,6 @@ if __name__ == "__main__":
         help="The number of output kernels from FPN",
         default=config.KERNEL_NUM,
         type=int,
-    )
-    PARSER.add_argument(
-        "--backbone-name",
-        help="""The name of the FPN backbone. Must be one of the following:
-                - 'inceptionresnetv2',
-                - 'inceptionv3',
-                - 'resnext50',
-                - 'resnext101',
-                - 'mobilenet',
-                - 'mobilenetv2',
-                - 'efficientnetb0',
-                - 'efficientnetb1',
-                - 'efficientnetb2',
-                - 'efficientnetb3',
-                - 'efficientnetb4',
-                - 'efficientnetb5'
-        """,
-        default=config.BACKBONE_NAME,
-        type=str,
     )
     PARSER.add_argument(
         "--learning-rate",
@@ -173,12 +168,6 @@ if __name__ == "__main__":
         type=float,
     )
     PARSER.add_argument(
-        "--batch-size",
-        help="The batch size for training and evaluation",
-        default=config.BATCH_SIZE,
-        type=int,
-    )
-    PARSER.add_argument(
         "--num-epochs",
         help="The number of training epochs",
         default=config.N_EPOCHS,
@@ -203,7 +192,7 @@ if __name__ == "__main__":
         type=int,
     )
     PARSER.add_argument(
-        "--warm-ckpt",
+        "--warm-checkpoint",
         help="The checkpoint to initialize from.",
         default=config.WARM_CHECKPOINT,
         type=str,
@@ -227,6 +216,14 @@ if __name__ == "__main__":
         + "Either `mirrored` or `multi-worker-mirrored`.",
         default=config.MIRRORED_STRATEGY,
         type=str,
+    )
+    PARSER.add_argument(
+        "--use-pretrained",
+        help="Whether to load the weights from the warm checkpoint.",
+        type=config.str2bool,
+        nargs="?",
+        const=True,
+        default=True,
     )
     PARSER.add_argument(
         "--augment-training-data",

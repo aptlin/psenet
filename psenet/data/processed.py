@@ -92,7 +92,6 @@ class ProcessedDataset:
             cycle_length=self.num_readers,
             num_parallel_calls=self.num_readers,
         )
-        dataset = dataset.repeat(None)
 
         dataset = dataset.map(
             self._parse_example, num_parallel_calls=self.num_readers
@@ -120,6 +119,7 @@ def build(FLAGS):
         dataset_dir = (
             FLAGS.training_data_dir if is_training else FLAGS.eval_data_dir
         )
+        logging.info("Loading data from {}.".format(dataset_dir))
         FLAGS.dataset_dir = dataset_dir
         FLAGS.should_repeat = True
         FLAGS.should_shuffle = is_training
