@@ -1,4 +1,3 @@
-import os
 from psenet import config
 import tensorflow as tf
 from psenet.nets.fpn import FPN
@@ -28,6 +27,3 @@ def build_model(params):
         name=config.KERNELS,
     )
     return logits
-
-
-
